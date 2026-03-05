@@ -1,4 +1,5 @@
+Projects which I have implemented at my current position can be opened above.
 
-The PDF Contract Verifier V16 Python program individually verifies the validity of contracts and assists in efficiently saving these documents.
+PDF Contract Verifier V16 is a Python program which individually verifies the validity of contracts and assists in efficiently saving these documents.
 
-PDF Data Exporter Python program loops through PDF documents in a selected folder, collects, and exports specific data points to an Excel file.
+PDF Data Exporter Python is also a Python program and loops through PDF documents in a selected folder, collects, and exports specific data points to an Excel file.
