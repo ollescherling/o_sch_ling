@@ -1,4 +1,4 @@
-Projects which I have implemented at my current position can be opened above.
+Programming projects which I have implemented at my current position can be opened above.
 
 PDF Contract Verifier V16 is a Python program which individually verifies the validity of contracts and assists in efficiently saving these documents.
 
