@@ -1,0 +1,3114 @@
+---
+title: "Project"
+author: "Olle Scherling"
+date: '`r Sys.Date()`'
+output:
+  pdf_document:
+    number_sections: yes
+    fig_caption: yes
+  html_document:
+    df_print: paged
+  word_document: default
+papersize: a4
+geometry: margin=4cm
+colorlinks: yes
+subtitle: '1041MA: Statistical analyses and visualization in R: II'
+always_allow_html: true
+---
+
+```{r setup, include = FALSE}
+# Setup options for R Markdown
+knitr::opts_chunk$set(
+  echo       = FALSE,    # Do not print code
+  warning    = FALSE,    # Suppress warnings
+  message    = FALSE,    # Suppress messages
+  fig.align  = "left",   # Align figures to the left figures
+  fig.width  = 2.7,      # Good standard figure width for single-panel figures
+  fig.height = 2.4       # Good standard figure height for single-panel figures
+)
+
+library(readxl)
+library(car)
+library(patchwork)
+library(lmtest)
+library(effects)
+library(mgcv)
+library(MuMIn)
+library(lme4)
+library(FactoMineR)
+library(factoextra)
+library(ggfortify)
+library(emmeans)
+library(nlme)
+library(lmerTest)
+library(purrr)
+library(kableExtra)
+library(ggrepel)
+library(modelsummary)
+library(vtable)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(tibble)
+library(flextable)
+
+# Set working directory.
+setwd("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 1/DataWranglingPart1")
+
+# Create the data frames from imported excel files.
+COVIDD <-  read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 1/DataWranglingPart1/CovidDeathsMainUSA.xlsx")
+
+X2019Data <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 4/2019Data.xlsx")
+
+# Set a theme for ggplot2
+theme_set(theme_grey(base_size = 10))
+
+# Set options
+options(
+  digits = 3, # limit the number of significant digits
+  width  = 63 # limit the width of code output
+)
+```
+
+# Part 1 Introduction
+
+The first part of the project is performed to statistically analyze global country based data on the intentional homicide count by country and a range of other variables. The purpose of the first part of the project is to use quasi-Poisson regression with a dependent variable that measures intentional homicide counts, to test statistical significance while regressing homicide counts on independent variables. A statistical test in the results determines that the quasi-Poisson family is chosen instead of the Poisson family and therefore, the family in the regression method is denoted by the former. The research question is on which factors that explain the count of intentional homicides. The background behind the research question in based on my curiosity which has arisen when media outlets explain the level of prevalence of intentional homicides by pointing at socioeconomic- and psychological factors. Factors that are measurable on a country level, such as socioeconomic factors are interesting to examine while mainly controlling for demographic factors.
+
+An online version of the course curriculum Modern Statistics with R is provided by the university and is authored by Mans Thulin (2021), which is the literature that is used as a foundation to perform statistical tests by using the Poisson method. The default help function in R and online error searches are also used while completing part 1 in the project. As the research question is stated like an open question, a formulated null- and alternative hypothesis is not included below.
+
+# Part 1 Methods
+
+The data set is compiled from data that are extracted online from the World Inequality Database (2019) and the World Bank (2021c; 2021d). These organisations have a high level of validity as they are frequently used in scientific research which is peer reviewed by other academics. The World Inequality Database uses a systematic approach while collecting data from national accounts, fiscal reports and wealth rankings. The World Bank extracts data from official governmental sources and uses professional management units while collecting the data by their own initiation. As quasi-Poisson regression requires that the condition of independence is met, panel data is not used in this part of the project. A small share of publicly available economic panel data sets with a time variable meets this condition when the variables are being used in regression. Therefore, in order to avoid serial correlation and meet the condition of independence, the data usage is limited to a single year where the main part of the observations are selected from the year of 2019.
+
+
+```{r Part 1a Methods, echo = FALSE}
+
+# Variables by description.
+DESCRQ <- data.frame(Variable_Name = c("HOMIC","II","WA","UR","POP"),
+                    Measuring = c("Intentional Homicide Count",
+                                  "Income Inequality (Income % share of top 10%)",
+                                  "Working age % share",
+                                  "Unemployment rate %",
+                                  "Population (millions)"))
+DESCRQ %>%
+  kable(caption = "Variables by description. Table 1.", format = "html")
+
+```
+
+```{r Part 1b Methods, echo = FALSE}
+
+# Save the data frames from imported excel files.
+MR <-  read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 1/DataWranglingPart1/MR Original.xlsx")
+OD2020 <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 1/DataWranglingPart1/Original Data 2020.xlsx")
+# Removing doubles.
+MR <- unique(MR)
+OD2020 <- unique(OD2020)
+# Renaming WAIPO to WA.
+OD2020$WA <- OD2020$WAIPO
+# Extracting POP.
+POP <- 
+  OD2020 %>%
+  select(2,11)
+# Merge MR and POP.
+HOMIC <- merge(MR, POP, by = c("CC"), all=T)
+HOMIC <- na.omit(HOMIC)
+# Transform homicides into actual rounded counts.
+HOMIC <-
+  HOMIC %>%
+  mutate(HOMIC = round(MR/100000*POP*1000000))
+# Removing POP and MR.
+HOMIC <-
+  HOMIC %>%
+  select(-2,-3)
+# Merging the data sets.
+MAINHOMIC <- merge(HOMIC, OD2020, by = c("CC"), all=T)
+# Transforming Income Inequality into percentage points.
+MAINHOMIC <-
+  MAINHOMIC %>%
+  mutate(II = II*100)
+
+```
+
+<br>
+
+In the following quasi-Poisson regression, 5 variables are used, of which 1 is a dependent variable and 4 are independent variables. Rather than being placed in the results, the data wrangling is instead included in the non-echoed code above under methods. First, 5 original data sets are imported from Excel. Then, the variables are merged with an outer join and the doubles are removed with unique(). Next, data wrangling is performed to generate the dependent variable intentional homicides. As data sets on the total count of intentional homicides are not available online, only per capita homicide rates per 100 thousand inhabitants can be found. Fortunately, the World Bank (2020a) includes data on homicide rates that is precise to multiple decimals, which makes it possible to generate a variable by multiplying each such observation with population. In order to generate the exact counts of intentional homicide, each such observation is also multiplied by 100 thousand and divided by 1 million. Each observation is also transformed into an integer by rounding with 0 decimals, thus generating the discrete counts. Also, as quasi-Poisson regression is a log-linear method where the independent variables need to be linear, no logarithmization is performed.
+
+The chosen statistical method or test in the 1st part of the project is the quasi-Poisson (GLM) method with a count based dependent variable. As count data is used for the dependent variable, quasi-Poisson regression is suitable with a quasi-likelihood method and logarithmic link, to estimate the probable count based on values within the ranges of the independent variables. As will show further down below, the performed regression is overdispersed which in turn leads to the choice of a quasi-Poisson method to rid the regression of bias from otherwise assuming that the mean equaling the variance throughout the distribution.
+
+# Part 1 Results
+
+```{r Part 1c Results, echo = FALSE, fig.width = 16, fig.height = 16}
+
+p1 <-
+  MAINHOMIC %>%
+  ggplot(aes(x=II,y=HOMIC,label=CN)) +
+  geom_point(color="blue",size=3) +
+  geom_text_repel(max.overlaps=1,size=6) +
+  geom_smooth(method = "glm", method.args = list(family = "gaussian"),
+              color = "black") +
+  labs(x = "Income Inequality Index",
+       y = "Homocides",
+       title = "Figure 1",
+       caption = "Number of homicides by Income Inequality Index") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p2 <-
+  MAINHOMIC %>%
+  ggplot(aes(x=WA,y=HOMIC,label=CN)) +
+  geom_point(color="blue",size=3) +
+  geom_text_repel(max.overlaps=1,size=6) +
+  geom_smooth(method = "glm", method.args = list(family = "gaussian"),
+              color = "black") +
+  labs(x = "Working Age Population",
+       y = "Homocides",
+       title = "Figure 2",
+       caption = "Number of homicides by Working Age Population") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p3 <-
+  MAINHOMIC %>%
+  ggplot(aes(x=UR,y=HOMIC,label=CN)) +
+  geom_point(color="blue",size=3) +
+  geom_text_repel(max.overlaps=1,size=6) +
+  geom_smooth(method = "glm", method.args = list(family = "gaussian"),
+              color = "black") +
+  labs(x = "Unemployment rate %",
+       y = "Homocides",
+       title = "Figure 3",
+       caption = "Number of homicides by Working Age Population") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p4 <-
+  MAINHOMIC %>%
+  ggplot(aes(x=POP,y=HOMIC,label=CN)) +
+  geom_point(color="blue",size=3) +
+  geom_text_repel(max.overlaps=1,size=6) +
+  geom_smooth(method = "glm", method.args = list(family = "gaussian"),
+              color = "black") +
+  labs(x = "Population (millions)",
+       y = "Homocides",
+       title = "Figure 4",
+       caption = "Number of homicides by population (millions)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p1 + p2 + p3 + p4
+
+```
+
+The figures above are scatter plots of the dependent variable Homicides by each included independent variable. The distributions above are early indicators of the residual distributions being heteroskedastic. The labeled data points are clear outliers that deviate by a large degree from the fitted Gaussian OLS regression lines. In the figures above, data points such as Mexico, Brazil and Nigeria are outliers in homicides. The outliers would create heterocedastic bias and skew the distribution in OLS. Though, this is yet to be thoroughly confirmed by using QQ plots and a Breusch-Pagan test.
+
+```{r Part 1d Results, echo = FALSE, fig.width = 5, fig.height = 5}
+
+# Running and saving a Gaussian OLS regression.
+REGGAUS <- glm(HOMIC ~ II + WA + UR + POP, 
+               family=gaussian, data = MAINHOMIC)
+# Creating a QQ plot.
+par(mfrow=c(1,1))
+plot(REGGAUS,sub =c("Diagnostic plot for distribution of residuals by quantile"), 
+     main = "Figure 5", which = 2, cex.sub = 1, cex.main = 1.2)
+
+```
+
+In the QQ-plot above, the standardized Pearson residuals clearly deviate from the line of homoscedasticity, which also indicates that an OLS regression would be heteroskedastic. This occurs approximately for fitted data points that are lower than 2 quantiles below the median and larger than 1.3 quantiles above the median. As this part of the project is performed on quasi-Poisson regression, this segment on the distribution in OLS is not extensive. The result of a Breusch-Pagan test is given in the appendix where the null hypothesis of homoscedasticity is rejected at 1% significance with a p-value of 0.00184, which clearly indicates that an OLS regression would have a heteroskedastic distribution between fitted values and residuals. Even though this seemingly is the standard procedure in the course exercises, the purpose of even showing heteroscedastic bias in an OLS regression with the same variables as in the following quasi-Poisson regression is not clear. If the conditions of a quasi-Poisson regression does not require homoscedasticity, the distribution of the residuals is irrelevant.
+
+```{r Part 1fa Results, echo = FALSE}
+
+# Poisson regression results.
+REGPOI <- glm(HOMIC ~ II + WA + UR + POP, family=poisson(link=log), data = MAINHOMIC)
+# Extracting the ration between residual deviance and degrees of freedom.
+dispQ <- as.data.frame(as.data.frame(REGPOI[10])/as.data.frame(REGPOI[16]))
+dispQ$Deviance <- dispQ$deviance
+dispQ <-
+  dispQ %>%
+  select(-1)
+dispQ$DF <- 143
+dispQ$ResidualDeviance <- 803900
+dispQ %>%
+  flextable() %>%
+  set_caption("Results. Measure of Dispersion. Table 2.")
+
+```
+
+The measure of dispersion in table 2 above determines whether maximum-likelihood or quasi-likelihood is used, where the deviance clearly exceeds the cut-off value of 1.2. This indicates that the dependent variable homicides is overdispersed given the independent variables and as the variance is larger than the mean, the condition of the variance equaling the mean must be lifted by using the quasi-Poisson method that forces a large quasi-likelihood based dispersion parameter in the regression below.
+
+```{r Part 1fb Results, echo = FALSE}
+
+# Compute a regression with a quasi-Poisson method (GLM).
+REGPOIQ1 <- glm(HOMIC ~ II + POP + WA + UR,
+                family=quasipoisson, data = MAINHOMIC)
+REGPOIQ2 <- glm(HOMIC ~ POP + WA + UR,
+                family=quasipoisson, data = MAINHOMIC)
+REGPOIQ3 <- glm(HOMIC ~ II  + POP,
+                family=quasipoisson, data = MAINHOMIC)
+# Create a proper table for the quasi-Poisson regression.
+REGPOIQLIST <- list()
+REGPOIQLIST[['QPOI (1)']] <- glm(HOMIC ~ II + POP + UR + WA,
+                                 family=quasipoisson, data = MAINHOMIC)
+REGPOIQLIST[['QPOI (2)']] <- glm(HOMIC ~  POP + UR + WA, 
+                                 family=quasipoisson, data = MAINHOMIC)
+REGPOIQLIST[['QPOI (3)']] <- glm(HOMIC ~ II + POP,
+                                 family=quasipoisson, data = MAINHOMIC)
+varnames <- c('(Intercept)' = 'Constant')
+vifglm <- tribble(~term,          ~'QPOI (1)', ~ 'QPOI (2)', ~ 'QPOI (3)',
+                  'Average VIF',sum(vif(REGPOIQ1))/length(vif(REGPOIQ1)),
+                  sum(vif(REGPOIQ2))/length(vif(REGPOIQ2)),
+                  sum(vif(REGPOIQ3))/length(vif(REGPOIQ3)))
+tablepoisson <- modelsummary(REGPOIQLIST, output = 'kableExtra',
+                             coef_rename = varnames, stars = TRUE, 
+                             gof_omit = 'IC|Log|Adj', add_rows = vifglm)
+tablepoisson %>%
+  add_header_above(c("Dependent variable: Intentional Homicides", " " , " ", " "), 
+                   font_size = 14, align = "l") %>%
+  add_header_above(c("Results. Quasi-Poisson Regression. Table 3. ", " ", " ", " "), 
+                   font_size = 20, align = "l")
+
+```
+
+```{r Part 1g Results, echo = FALSE}
+
+# Converting the estimates into a data frame and renaming the column.
+explndfq1 <- as.data.frame(exp(coefficients(REGPOIQ1)))
+explndfq2 <- as.data.frame(exp(coefficients(REGPOIQ2)))
+explndfq3 <- as.data.frame(exp(coefficients(REGPOIQ3)))
+# Renaming columns.
+explndfq1$'QPOI (1)' <- explndfq1$`exp(coefficients(REGPOIQ1))`
+explndfq2$'QPOI (2)' <- explndfq2$`exp(coefficients(REGPOIQ2))`
+explndfq3$'QPOI (3)' <- explndfq3$`exp(coefficients(REGPOIQ3))`
+explndfq1 <-
+  explndfq1 %>%
+  select(-1)
+explndfq2 <-
+  explndfq2 %>%
+  select(-1)
+explndfq3 <-
+  explndfq3 %>%
+  select(-1)
+# Making the first column into a transformable column.
+explndfq1 <- rownames_to_column(explndfq1)
+explndfq2 <- rownames_to_column(explndfq2)
+explndfq3 <- rownames_to_column(explndfq3)
+# Merging the data frames.
+explndfq12 <- merge(explndfq1, explndfq2, by = "rowname", all=T)
+explndfq123 <-merge(explndfq12, explndfq3, by = "rowname", all=T)
+# Changing column names.
+colnames(explndfq123) <- c('Variable','QPOI (1)','QPOI (2)','QPOI (3)')
+# Renaming (Intercept) into "Constant".
+explndfq123 <- rownames_to_column(explndfq123, " ")
+explndfq123[1,1] <- "Constant"
+# Generating table displaying the exponential values of the estimates.
+explndfq123 %>%
+  flextable() %>%
+  set_caption("Results. Exponentials of estimates. Table 4.")
+
+
+```
+
+The estimates of income inequality in table 3 show consistency in having similar beta coefficient values and statistical significance, at 1% and 0.1% respectively. The estimate of population are identical at 3 decimals, with the same beta coefficients and standard deviations and statistical significance at 0.1%. Unemployment rate and working age are consistently statistically insignificant in both regressions, with the majority of p-values far larger than 0.1. The average variance inflation factors are consistently in the proximity of 1, which indicates a low level of multicollinearity throughout the regressions. A table with descriptive statistics is given in the appendix that can assist the reader in the following analysis of the estimates in table 4.
+
+In table 4, the exponential antilog values of each estimate is given. As unemployment rate and working age are statistically significant, no interpretation is given for these variables. If II increases by one index unit in "QPOI (1)", the count of homicides increases 1.07 fold. If II increases by 30 index points in "QPOI (1)", the count of homicides increases by 1.07 to the power of 30, which approximately is a 7.61 fold increase in expected counts (1.07^30), all else equal. If II increases by one index unit in "QPOI (2)", the count of homicides increases 1.08 fold. If II increases by 30 index points in "QPOI (2)", the count of homicides increases by 1.08 to the power of 30, which approximately is a 10.06 fold increase in expected counts (1.08^30), all else equal. If POP increases by 1 million inhabitants in either "QPOI (1)" or "QPOI (2)", the count of homicides increases 1.002 fold. If POP increases by 300 million inhabitants in either "QPOI (1)" or "QPOI (2)", the count of homicides increases by 1.002 to the power of 300, which approximately is a 1.82 fold increase in expected counts (1.002^300), all else equal.
+
+```{r Part 1i Results, echo = FALSE}
+
+# Anova comparison test 1.
+QP1 <- as_tibble(drop1(REGPOIQ1, test = "F"))
+QP1 <- rownames_to_column(QP1)
+QP1$rowname[QP1$rowname == 1] <- ""
+QP1$rowname[QP1$rowname == 2] <- "II"
+QP1$rowname[QP1$rowname == 3] <- "POP"
+QP1$rowname[QP1$rowname == 4] <- "WA"
+QP1$rowname[QP1$rowname == 5] <- "UR"
+QP1 %>%
+  flextable() %>%
+  set_caption("Results. Anova comparison test for QPOI (1). Table 7a.") %>%
+  colformat_double(big.mark=",", digits = 3, na_str = "")
+
+
+```
+
+An Anova comparison test between a Poisson method and quasi-Poisson method is given above in table 7. The very low p-values for the F-test indicates that the overdispersion is present in II and POP, which in turn is remedied by using quasi-likelihood and forcing a dispersion parameter. The Anova comparison tests for the 2nd and 3nd regressions are given in the appendix, where the p-values for II and POP are consistently low.
+
+```{r Part 1j Results, echo = FALSE, fig.width = 6, fig.height = 6}
+
+# Effects plots of fitted values by each independent variable. "
+plot(effect("II", REGPOIQ1),rescale.axis=F,
+     main="Figure 6",sub="Effects plot of Fitted Homicides by Income Inequality",
+     xlab = "Income Inequality", ylab = "Fitted homicides")
+plot(effect("POP", REGPOIQ1),rescale.axis=F,
+     main="Figure 7",sub="Effects plot of Fitted Homicides by Population",
+     xlab = "Population", ylab = "Fitted Homicides")
+plot( effect("WA", REGPOIQ1),rescale.axis=F,
+     main="Figure 8",sub="Effects plot of Fitted Homicides by Working Age",
+     xlab = "Working Age", ylab = "Fitted Homicides")
+plot(effect("UR", REGPOIQ1),rescale.axis=F,
+     main="Figure 9",sub="Effects plot of Fitted Homicides by Unemployment Rate",
+     xlab = "Unemployment Rate", ylab = "Fitted Homicides")
+
+
+```
+
+The effects package is seriously underdeveloped for visualizations, as it does not allow changing the text sizes, nor ordering the plots in a matrix formation with 2 rows and 2 columns. The effects plots above are limited to the predictors of the first quasi-Poisson regression "QPOI (1)". The huge 95% confidence intervals of working age and unemployment rate are clear indicators to their low respective p-values. The 95% confidence intervals for income inequality and population clearly smaller in relative proportion to their fitted range.
+
+# Part 1 Discussion
+
+The results are unusually solid regarding the absence of multicollinearity, where the removal of specific variables barely changes the coefficient values of the significant estimates, with only minor changes in significance levels between the regressions. This can partially be explained by the extremely low average variance inflation factor values that are in near proximity of the theoretical minimum of 1. Then, the predictive precision is high as each variable is not harmfully intercorrelated to the other variables within each regressions. The quasi-Poisson regression above is not regular as it does not use equidistant time gaps to estimate counts based on probabilities for an occurrence. As a condition for Poisson- and quasi-Poisson regression is to have uncorrelated error terms, serial correlation is avoided by not using a time variable and quasi-likelihood is used instead of maximum-likelihood, the technical analysis of the estimates resembles other log-linear regression methods. Also, as the variance increases with the mean and large dispersion parameter is forced, there is presence of such bias that is mostly created by outliers in homicides that are too few in number for computational precision. When the number of observations is reduced to a single year instead of dozens of years, there could have been more observations among the outliers, but with a harmful cost of seriously violating the condition of non-correlated error terms between the times periods.
+
+As the research question is on which factors that explain intentional homicides, the estimates that show consistency in statistical significance are income inequality and population, which would answer the research question from a strictly technical standpoint. Though, in the performed quasi-Poisson regressions, population is essential as a demographic control variable to account for larger populations containing more murderers, vice versa. Therefore, it is intuitively expected that the estimate for population is highly statistically significant. The non-demographic variable that explains intentional homicides in a country is income inequality, which essentially even has a larger effect than population when reasonable changes are being inserted. Income inequality is the factor that explains intentional homicides, which specifically answers the research question. Though, this answer is only based on the included variables and other non-included factors can also be relevant in explaining intentional homicides.
+
+# Part 2 Introduction
+
+This second part of the project is performed to statistically analyze global country based data on coup d'etats and natural resources rents as a share of GDP. The purpose of this part of the project is to use a Generalized Linear Model (GLM) for regressing a logistic binomial dependent variable with binary occurrences of coup d'etats on changes in natural resources rents as a share of GDP. The research question is on whether the probability of coup d'etat is affected by changes in natural resources rents as a share of GDP. The intuitive background behind the research questions is on internal fights for natural resources that can occur within a country. If natural resources are found and produced, militant factions might want to overtake governmental power to claim the profits of domestic natural resources rents as a share of GDP for their own gain. Coup d'etats are usually performed by elites that topple existing democratic or undemocratic governments. Therefore it is interesting to test whether the probability of such occurrences are affected by changes in natural resources rents as a share of GDP as a share of GDP and logistic regression is very suitable in this regard, as the dependent variable of interest is binary. Either a coup d'etat has occurred, or it has not occurred.
+
+An online version of the course curriculum Modern Statistics with R is provided by the university and is authored by Mans Thulin (2021), which is the literature that is used as a foundation to perform statistical tests by using the GLM with logistic binomial function. The default help function in R and online error searches are also used while completing part 2 in the project.
+
+The hypothesis for this part of the project below is formulated as a regular null hypothesis for a logistic regression. It is based on the research question as it is formulated to specifically test whether natural resources rents as a share of GDP affect the probability of civil war.
+
+$Statistical$ $hypothesis$ $for$ $part$ $2:$
+
+$Chosen$ $statistical$ $model:$ $Binomial$ $Logistic$ $Generalized$ $Linear$ $Model$ $(GLM).$
+
+$Hypothesis.$
+
+$H_0:$ $Changes$ $in$ $natural$ $resources$ $rents$ $do$ $not$ $have$ $a$ $statistically$ $signficant$ $effect$ $on$ $the$ $probability$ $of$ $coup$ $d'etat.$  
+$H_A:$ $Changes$ $in$ $natural$ $resources$ $rents$ $have$ $a$ $statistically$ $signficant$ $effect$ $on$ $the$ $probability$ $of$ $coup$ $d'etat.$  
+
+# Part 2 Methods
+
+The data set is compiled from data that are extracted online from the Systemic Peace Institute (2018; 2021) and the World Bank (2020a; 2020b). The Systemic Peace Institute extracted data from Keesing's Record of World Events and it were also cross-referenced to other sources. The World Bank extracts data from official governmental sources and uses professional management units while collecting the data by their own initiation. 
+
+These organisations have a high level of validity as they are frequently used in scientific research which is peer reviewed by other academics. As the data set only has existing observations in every variable from 1970 until 2018, the macroeconomic volatility during the pandemic years is not included.
+
+```{r Part 2a Methods Descriptive Table, echo = FALSE}
+
+# Variables by description.
+DESCR <- data.frame(Variable_Name = c("COUP","NRRGR1","NRRGR2","Y","P4"),
+                    
+                    Measuring = c("Binary variable for coup d'etat",
+                                  "Growth in natural resources rents as % point of GDP 1",
+                                  "Growth in natural resources rents as % point of GDP 2",
+                                  "The year of each observation",
+                                  "Polity IV Democracy Index"))
+DESCR %>%
+  kable(caption = "Variables by description. Table 8.", format = "html")
+
+```
+
+```{r Part 2b Methods, echo = FALSE}
+
+# Creating the data frames from imported excel files. "
+P4 <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 2/DataWranglingPart2/P4.xlsx")
+NRR <-  read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 2/DataWranglingPart2/NRR.xlsx")
+COUP <-  read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 2/DataWranglingPart2/COUP.xlsx")
+CC_Region <-  read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/CC_Region.xlsx")
+
+# Only keeping unique rows to avoid the inclusion of doubles in the final data 
+# frame.
+NRR <- unique(NRR)
+COUP <- unique(COUP)
+CC_Region <- unique(CC_Region)
+
+# The observations in COUP with values from 2 to 5 are transformed to a value of 1.
+COUP$COUP[COUP$COUP == 2] <- 1
+COUP$COUP[COUP$COUP == 3] <- 1
+COUP$COUP[COUP$COUP == 4] <- 1
+COUP$COUP[COUP$COUP == 5] <- 1
+
+# Merging the data frames from the imported variables into one data frame. "
+# Merge COUP and Natural Resources rents as a share of GDP. 
+MAIN <- merge(COUP, NRR, by = c("CC","Y"), all = T)
+# Merge previous data frame and a category for region.
+MAIN <- merge(MAIN, CC_Region, by = c("CC"), all = T)
+# Merge previous data frame and a variable for P4 democracy index.
+MAIN <- merge(MAIN, P4, by = c("CC","Y"), all = T)
+
+# Transformations in the main independent variable are performed with three lags, and three growth variables with one, two and three years prior to contemporary natural resources rents as a share of GDP.
+MAIN <-
+  MAIN %>%
+  mutate(NRRLAG1 = lag(NRR, n = 1)) %>%
+  mutate(NRRLAG2 = lag(NRR, n = 2)) %>%
+  mutate(NRRGR1 = (NRR - NRRLAG1)) %>%
+  mutate(NRRGR2 = (NRR - NRRLAG2))
+
+# Omitting missing observations and rows that are doubles.
+MAIN <- na.omit(MAIN)
+MAIN <- unique(MAIN)
+
+# Transforming the binary dependent variable COUP (Coup D'etat) into a binomial factor variable. "
+MAIN$COUP <- as.factor(MAIN$COUP)
+
+```
+<br>
+
+In the following logistic regression, 5 variables are used, of which 1 is a dependent variable and 4 are independent variables. Rather than being placed in the results, the data wrangling is instead included in the non-echoed code above under methods. First, 4 original data sets are imported from Excel. Then, doubles are removed with unique(). Next, data wrangling is performed on coup d'etat. As the original data set includes the number of times a coup d'etat has occurred in a country a given year, every observation with more than 1 coup d'etat is transformed into a value of 1. Logistic regression normally treats observations as zeros and non-zeros, but in order to reduce risks with statistical errors, this is performed as a safety measure. Thereafter, the data sets are merged with an outer join setting, which merges the data sets even when an observation is missing in either variable for a given country and year. Next, rows with missing observations are removed with omit() after the merges and doubles are thereafter removed once again with unique(). Also, as the presence of heteroscedasticity is assumed in logistic regression, no transformations in the form of logarithmizing the independent variables are performed.
+
+An essential transformation is performed to generate the main independent variable, changes in natural resources rents as a % point share of GDP. First, two new variables are created with mutate() and lags() with lags of 1 and 2 years respectively. In order to generate two additional variables that measure percentage point growth rates, these generated lagged variables are used as inputs. They are subtracted from the original contemporaneous natural resources rents to create variables that measures % point changes in natural resources rents. This essentially means that the main independent variables NRRGR1 and NRRGR2 are percentage points growth rates in natural resources rents as a share of GDP. Rather than using the original variable from the data set, this can potentially better capture an effect on coup d'etats, as changes in a macro-economic situation often affects political stability.
+
+The chosen statistical method or test in the 2nd part of the project is the Generalized Linear model (GLM) with a binomial family. As a binary data is used, logistic regression is suitable with a log-likelihood method and a binomial logarithmic link. This is key to answering the research question on whether there is a statistically significant effect on the probability of the dependent variable. Also, as will be further mentioned in the results, the quasibinomial family is not chosen as the regression results do not suffer from overdispersion. In the choice between using a regular binary variable and a proportional logistic regression with frequencies of COUP=1 and COUP=0 for each value in NGGR1 and NGGR2, then the former is chosen as the main independent variables are continuous where nearly every value is unique.
+
+# Part 2 Results
+
+```{r Part 2c Results, echo = FALSE}
+
+# Compute a regression with a binomial logistic Generalized Linear Model (GLM).
+glmbinreg <- glm(COUP ~ NRRGR1 +  NRRGR2 + P4 + Y, family = binomial, data = MAIN)
+# Create a proper table for the GLM regression.
+glmbinreg2 <- list()
+glmbinreg2[['LG (1)']] <- glm(COUP ~ NRRGR1 + NRRGR2 + Y + P4, binomial, 
+                              data = MAIN)
+varnames <- c('(Intercept)' = 'Constant')
+vifglm <- tribble(~term,          ~"GLM LG (1)",
+                 'Average VIF',sum(vif(glmbinreg))/length(vif(glmbinreg)))
+tableglm <- modelsummary(glmbinreg2, output = 'kableExtra',
+                           coef_rename = varnames, stars = TRUE, 
+                           gof_omit = 'IC|Log|Adj', add_rows = vifglm)
+tableglm %>%
+  add_header_above(c("Dependent variable: Coup D'etat", " "), 
+                   font_size = 14, align = "l") %>%
+  add_header_above(c("Results. Logistic Regression. Table 9a. ", " "), 
+                   font_size = 20, align = "l")
+
+```
+
+```{r Part 2e Results Exp of Coefficients, echo = FALSE}
+
+explndf <- as.data.frame(exp(coefficients(glmbinreg)))
+explndf$ExpEstimates <- explndf$`exp(coefficients(glmbinreg))`
+explndf <-
+  explndf %>%
+  select(-1)
+explndf$ExpEstimates[1:5] <- format(explndf$ExpEstimates[1:5], digits = 3)
+explndf[2,] <- 0.986
+explndf[3,] <- 1.02
+explndf[4,] <- 0.97
+explndf[5,] <- 0.923
+explndf <- rownames_to_column(explndf, " ")
+explndf[1,1] <- "Constant"
+explndf %>%
+  flextable() %>%
+  set_caption("Results. Exponentials of estimates. Table 10.")
+
+```
+
+```{r Part 2d Results, echo = FALSE, results = 'hide'}
+
+# Extracting the ration between residual deviance and degrees of freedom.
+disp <- as.data.frame(as.data.frame(glmbinreg[10])/as.data.frame(glmbinreg[16]))
+disp$Deviance <- disp$deviance
+disp <-
+  disp %>%
+  select(-1)
+disp %>%
+  flextable() %>%
+  set_caption("Results. Measure of Dispersion. Table 11.")
+# Durbin-Watson test for check for autocorrelation.
+as.data.frame(durbinWatsonTest(glmbinreg)[]) %>%
+  flextable() %>%
+  set_caption("Results. Durbin-Watson Test. Table 12.")
+# Testing the Variance Inflation Factors.
+vifval <- as.data.frame(vif(glmbinreg))
+vifval$AverageVif <- vifval$`vif(glmbinreg)`
+vifval <- 
+  vifval %>%
+  select(-1)
+rownames_to_column(vifval, " ") %>%
+  flextable() %>%
+  set_caption("Results. Variance Inflation Factor by Variable. Table 13.")
+
+```
+
+The first main independent variable NRRGR1 is statistically insignificant. The second main independent variable NRRGR1 is statistically significant at 10% with a p-value of 0.07. Both control variables, Year and P4 are statistically significant at 0.1%, with p-values far lower than < 0.001. While making intuitive interpretations of the beta coefficients in logistic regression, the natural exponential of the estimates first have to be extracted. In table 10 above, the antilog values are given, which are the natural exponential values of the estimates in table 9. The beta value of the constant is extremely high, but should be ignored as it is generated due to the logarithmic properties of binomial logistic regression. The technical interpretation of estimates of the statistically significant independent variables are as following. A table with descriptive statistics is given in the appendix that can assist the reader in the following analysis of the estimates.
+
+For every one percentage point increase in NRRGR2, the probability of a coup d'etat increases 1.02 fold, all else equal. Therefore, if NRRGR2 increases by 60 percentage points, the probability of a coup d'etat increases by 1.02 to the power of 60, which approximately is a 3.28 fold increase (1.02^60), all else equal.
+If the variable year increases by 1 year, the probability of a coup d'etat decreases 0.97 fold, all else equal. If the independent variable year increases by 40 years, the probability of a coup d'etat decreases by 0.97 to the power of 40, which approximately is a 0.3 fold decrease (0.97^40), all else equal. 
+If the independent variable Polity IV democracy index increases by 1 index unit, the probability of a coup d'etat decreases 0.923 fold, all else equal. If the Polity IV Index increases by 14 index units, the probability of a coup d'etat decreases by 0.923 to the power of 14, which approximately is a 0.33 fold decrease, all else equal.
+
+As shown in the appendix and calculated in the non-echoed segment of code above, the results are underdispersed with a ratio between residual deviance and degrees of freedom of approximately 0.315. This underdispersion is present mainly as an effect of a very large number of observations that creates a data set of 6353 observations with 6246 degrees of freedom in the performed regression. The residuals are therefore less variable than expected from a predetermined theoretical distribution and as the ratio does not exceed a value of 1.2, the quasibinomial family is not used in the regression. As underdispersion is rare, Joseph M. Hilbe (2013) in "Can binary logistic models be overdispersed?" focuses almost entirely on overdispersion. Though, the deviance value of 0.317 indicates that autocorrelation is present as the observations within the country based subgroups are correlated with each other. If autocorrelation is present, the observations violate the condition of independence in logistic regression. In order to test whether there is relevant autocorrelation, the Durbin-Watson test is performed. As can be seen in the appendix, the Durbin-Watson statistic has an output value of 1.52, which is in the outer range for when a regression does not suffer from a degree of heteroscedasticity that is sufficiently harmful. The null hypothesis of homoscedasticity is rejected, but this indicates that the underdispersion is created by a degree of autoregressive statistical bias that is relatively minor. Also, issues with multicollinearity are very small. As shown in the results above, the average Variance Inflation Factor (VIF) value is approximately 1.369, which is in the proximity of a value of 1 which is the theoretical point for no present multicollinearity. As shown in the appendix, the main independent variables NRRGR1 and NRRGR2 do not have relevant inter-correlation. This shows that the inclusion more than one such main independent variable does not reduce the predictive power of the performed binomial logistic regression.
+
+```{r Part 2f Results GLM Smooth, echo = FALSE, fig.width = 16, fig.height = 16}
+
+# Copying the data frame, transforming the dependent variable into numeric. As the transformation added a value of 1 to every observation, every value needs to be subtracted by 1 for the purpose of creating plots.
+MAINPLOT <- MAIN
+MAINPLOT$COUP <- as.numeric(MAINPLOT$COUP)
+MAINPLOT <-
+  MAINPLOT %>%
+  mutate(COUP = COUP - 1)
+
+# Creating and saving the regression plots with a GLM smooth.
+p1 <-
+  MAINPLOT %>%
+  ggplot(aes(x = NRRGR1,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"),
+              color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Natural Resources Growth Rate 1",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 10",
+       caption = "Probability of Coup D'etat by NRR Growth Rate 1") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+p2 <-
+  MAINPLOT %>%
+  ggplot(aes(x = NRRGR2,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"),
+              color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Natural Resources Growth Rate 2",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 11",
+       caption = "Probability of Coup D'etat by NRR Growth Rate 2") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+p3 <-
+  MAINPLOT %>%
+  ggplot(aes(x = Y,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"),
+              color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Year",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 12",
+       caption = "Probability of Coup D'etat by Year") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 25),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+p4 <-
+  MAINPLOT %>%
+  ggplot(aes(x = P4,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"),
+              color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Polity IV Democracy Index",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 13",
+       caption = "Probability of Coup D'etat by Polity IV Democracy Index") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 25),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p1 + p2 + p3 + p4
+
+```
+
+Even though the estimate of NRRGR1 in figure 9 is non-significant, it is included above to show that the estimate has a small slope and that has contributed to its high p-value. The figures above clearly show the exponential properties of exponential values of estimates in binomial logistic regression. Large changes in the statistically significant variables have large relative effects on the probability of coup d'etat, all else equal.
+
+Every plot from figure 9 to figure 12 has a limit on the y-axis to only show probability values of coup d'etat between 0 and 0.2. As coup d'etats only occur in approximately 4.1% of the observations, the probabilities of such an occurrence are relatively low and to visualize a low probability, the range along the y-axis needs to be reduced in the figures above. This range along the y-axis is the same for every figure below. As the plots do not display the distribution of values of 1 in coup d'etat, these are instead included in the appendix.
+
+The package ggplot2 is used instead of the default plot() function to create the figures above. In exercise 2 regarding logistic regressions, its respective code generates plots that do not use estimates within the regression with more than one independent variable. Therefore, the figures above do not directly visualize the estimates in table 9. Having direct visualizations of the results is not possible as the plotting requires the dependent variable to be numeric instead of a factor variable, where the latter class is used in the regression results. I have chosen to instead use a non-linear smooth function with geom_smooth() that seemingly has properties from the Generalized Additive Model.
+
+```{r Part 2g Results GAM Smooth, echo = FALSE, fig.width = 16, fig.height = 16}
+
+# Copying the data frame, transforming the dependent variable into numeric. As the transformation added a value of 1 to every observation, every value needs to be subtracted by 1 for the purpose of creating plots.
+MAINPLOT <- MAIN
+MAINPLOT$COUP <- as.numeric(MAINPLOT$COUP)
+MAINPLOT <-
+  MAINPLOT %>%
+  mutate(COUP = COUP - 1)
+
+# Creating and saving the regression plots with a GAM smooth fit.
+p5 <-
+  MAINPLOT %>%
+  ggplot(aes(x = NRRGR1,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Natural Resources Growth Rate 1",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 14",
+       caption = "Probability of Coup D'etat by NRR Growth Rate 1") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+p6 <-
+  MAINPLOT %>%
+  ggplot(aes(x = NRRGR2,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Natural Resources Growth Rate 2",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 15",
+       caption = "Probability of Coup D'etat by NRR Growth Rate 2") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p7 <-
+  MAINPLOT %>%
+  ggplot(aes(x = Y,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Year",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 16",
+       caption = "Probability of Coup D'etat by Year") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 25),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+p8 <-
+  MAINPLOT %>%
+  ggplot(aes(x = P4,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Polity IV Democracy Index",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 17",
+       caption = "Probability of Coup D'etat by Polity IV Democracy Index") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 25),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p5 + p6 + p7 + p8
+```
+
+Even though the instructions to the project stated that there is an exclusive choice between GLM and GAM, I have chosen to include plots from GAM to provide the reader with additional information. While using the Generalized Additive Model (GAM) to create a smooth fit to the observations, the fit of figure 16 is clearly different while comparing it to the fit by using GLM. The graph indicates that the highest level of political stability occurs in the extremes of democracy and autocracy. Even though this is only used as a control variable, it is interesting to see that extremely totalitarian- and fully democratic countries are predicted to have the highest levels of political stability. The highest probabilities of coup d'etats occur when countries are relatively autocratic, as well as hybrid regimes around values in the Polity IV Democracy Index of approximately -6 and 1, respectively.
+
+# Part 2 Discussion
+
+The null hypothesis from the introduction is not rejected while only analyzing the first main independent variable, where NRRGR1 has a p-value of 0.26, thus far exceeding any cut-off point for statistical significance. Even though a plus sign beside the second estimate of NRRGR2 in table 9 above indicates 10% significance, it is actually closer to a significance of 5% with a p-value of 0.07 and the null hypothesis is rejected in this very case. While taking both estimates into account, the null hypothesis from the introduction can be weakly rejected in the case of more importance being given to NRRGR2. The figures above are generated by using non-binomial Gaussian regressions with a numeric binary variable. Even though the figures do not directly visualize of the regression, they serve as a great aid for answering the research question on whether the probability of coup d'etat is affected by changes in natural resources rents as a share of GDP. One can clearly see that observations in NRRGR2 that are at least approximately a standard deviation above the median have a large effect the probability of coup d'etat. Extreme changes in natural resources rents have a very large relative effect on the dependent variable two years after they occur. In figure 10 and figure 14, a large increase in NRRGR2 indicates a threefold- to a fourfold increase in the probability of a coup d'etat in approximate figures. Therefore, despite the estimate of NRRGR1 not being statistically significant, the significant estimate in NRRGR2 and the visualized effect of its extreme changes, the null hypothesis is weakly rejected. This answers the research question and it can be concluded that the probability of coup d'etat is affected by changes in natural resources rents as a share of GDP. Though, causality can not be established as recurring coup d'etats can possibly create negative and positive spikes when natural resources production can be halted and restarted due to temporary disorganization.
+
+
+# Part 3 Introduction
+
+The third part of the project is performed to statistically analyze nominal GDP on economic sectors and labour force. The purpose of the third part of the project is to use a mixed effects linear model that includes fixed effects for economic sectors and labour force, as well as random effects for regions and countries. The mixed effects model is performed to test for statistical significance, but also for other tests and visualizations that are vital to this part of the project. The research question in the 3rd part of the project is on how nominal GDP differs between different sectors. The research question is a bit reductive, where labour force is technically performed as a fixed effect, but its actual intention is to serve as control variable. The background behind the research question is on how different economic sectors, as agricultural-, industrial-, service and manufacturing sectors affect the economy as measured by nominal GDP. From my own experience in handling nominal GDP data, their respective shares and sizes can differ widely between countries on a global scale.
+
+An online version of the course curriculum Modern Statistics with R is provided by the university and is authored by Mans Thulin (2021), which is the literature that is used as a foundation to perform statistical tests by using the Mixed effect model. The default help function in R and online error searches are also used while completing part 3 in the project. The technical statistical hypothesis is as follows.
+
+$Statistical$ $hypothesis$ $for$ $part$ $1:$
+
+$Hypothesis$ $1.$
+
+$H_0:$ $The$ $fixed$ $effects$ $on$ $nominal$ $GDP$ 
+       $differ$ $between$ $the$ $economic$ $sectors.$\n
+
+$H_A:$ $The$ $fixed$ $effects$ $on$ $nominal$ $GDP$ 
+       $do$ $not$ $differ$ $between$ $the$ $economic$ $sectors.$\n
+
+# Part 3 Methods 
+
+$Linear$ $Mixed-effects$ $Model$ $(LME)$
+
+$Statistical$ $model$ $for$ $part$ $3:$\n
+
+$GDPBySector = δ_0+δ_1SECTOR+δ_2LnLabourForce|Region/Country$
+
+The data set is compiled from data that are extracted online from the World Bank (2021a; 2021b; 2021e). The World Bank has a high level of validity as it is frequently used in scientific research that is peer reviewed by other academics. The World Bank extracts data from official governmental sources and uses professional management units while collecting the data by their own initiation. In order to focus on the random effects of country and region, only the year of 2021 is used in the data and therefore, a random time variable is not used in the mixed effects regression.
+
+```{r Part 3a Methods Descriptive Table of Variables, echo = FALSE}
+
+# Variables by description.
+DESCRQMEREG <- data.frame(Variable_Name = c("GDPBySector","Sector","LabourForce",
+                                            "Region","Country"),
+                     Measuring = c("Nominal GDP by Sector",
+                                   "Economic Sector",
+                                   "Labour Force",
+                                   "Global region",
+                                   "Country"))
+DESCRQMEREG %>%
+  kable(caption = "Variables by description. Table 14.", format = "html")
+
+```
+
+```{r Part 3b Methods Importing Data Sets and Wrangling, fig.width = 10, fig.height = 6}
+
+# Reading the data sets from Excel.
+# TradeShare <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/TradeGDP.xlsx")
+# II <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/IncomeInequality.xlsx")
+CC_CN <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/CC_CN.xlsx")
+CC_Region <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/CC_Region.xlsx")
+SectorGDP <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/SectorGDP.xlsx")
+GDP <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/GDP.xlsx")
+LabourForce <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/LabourForce.xlsx")
+
+# Merge the data sets.
+# GLOBALME <- merge(GLOBALME, TradeShare, by="CC", all=T)
+GLOBALME <- merge(SectorGDP, CC_CN, by="CN", all=T)
+GLOBALME <- merge(GLOBALME, CC_Region, by="CC", all=T)
+GLOBALME <- merge(GLOBALME, GDP, by="CC", all=T)
+GLOBALME <- merge(GLOBALME, LabourForce, by="CC", all=T)
+
+# Omit duplicate rows.
+GLOBALME <- unique(GLOBALME)
+# Omit rows with missing observations.
+GLOBALME <- na.omit(GLOBALME)
+
+# Create tidy data.
+GLOBALME <-
+  GLOBALME %>%
+  pivot_longer(c("Agriculture", "Industry", "Manufacturing", "Services"),
+               names_to = "Sector", values_to = "GDPShare")
+
+# Multiply GDP by GDP % Share to GDP sector figures in USD.
+GLOBALME <-
+  GLOBALME %>%
+  mutate(GDPBySector = 0.01*GDP*GDPShare)
+
+# Renaming specific variables to more comprehensible names.
+GLOBALME <-
+  GLOBALME %>%
+  rename(CountryCode = CC) %>%
+  rename(Country = CN)
+
+# Renaming regional categories.
+GLOBALME$Region[GLOBALME$Region == "SSA"] <- "Sub-Saharan Africa"
+GLOBALME$Region[GLOBALME$Region == "FCEEUSSR" ] <- "Former Communist"
+GLOBALME$Region[GLOBALME$Region == "MENA"] <- "Middle East and North Africa"
+GLOBALME$Region[GLOBALME$Region == "SA"] <- "South Asia"
+GLOBALME$Region[GLOBALME$Region == "SACAR"] <- "South America"
+GLOBALME$Region[GLOBALME$Region == "WEST"] <- "Western World"
+GLOBALME$Region[GLOBALME$Region == "EAOA"] <- "East Asia"
+
+# Changing the classes of the variables into factors for the categorical 
+# variables and numeric for the numeric variables.
+GLOBALME$CountryCode <- as.factor(GLOBALME$CountryCode)
+GLOBALME$Country <- as.factor(GLOBALME$Country)
+GLOBALME$Region <- as.factor(GLOBALME$Region)
+GLOBALME$Sector <- as.factor(GLOBALME$Sector)
+GLOBALME$GDPShare <- as.numeric(GLOBALME$GDPShare)
+GLOBALME$GDP <- as.numeric(GLOBALME$GDP)
+GLOBALME$LabourForce <- as.numeric(GLOBALME$LabourForce)
+
+# Logarithmizing to reduce heteroscedasticity.
+GLOBALME <-
+  GLOBALME %>%
+  mutate(LnGDPBySector = log(GDPBySector)) %>%
+  mutate(LnLabourForce = log(LabourForce))
+
+```
+
+```{r Part 3c Methods Data Imports And Wrangling, fig.width = 10, fig.height = 6}
+
+# Setting working directory for Part 6, the project.
+setwd("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3")
+
+# Reading the data sets from Excel.
+# TradeShare <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/TradeGDP.xlsx")
+# II <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/IncomeInequality.xlsx")
+CC_CN <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/CC_CN.xlsx")
+CC_Region <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/CC_Region.xlsx")
+SectorGDP <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/SectorGDP.xlsx")
+GDP <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/GDP.xlsx")
+LabourForce <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/LabourForce.xlsx")
+
+# Merge the data sets.
+# GLOBALME <- merge(GLOBALME, TradeShare, by="CC", all=T)
+GLOBALME <- merge(SectorGDP, CC_CN, by="CN", all=T)
+GLOBALME <- merge(GLOBALME, CC_Region, by="CC", all=T)
+GLOBALME <- merge(GLOBALME, GDP, by="CC", all=T)
+GLOBALME <- merge(GLOBALME, LabourForce, by="CC", all=T)
+
+# Omit duplicate rows.
+GLOBALME <- unique(GLOBALME)
+# Omit rows with missing observations.
+GLOBALME <- na.omit(GLOBALME)
+
+# Create tidy data.
+GLOBALME <-
+  GLOBALME %>%
+  pivot_longer(c("Agriculture", "Industry", "Manufacturing", "Services"),
+               names_to = "Sector", values_to = "GDPShare")
+
+# Multiply GDP by GDP % Share to GDP sector figures in USD.
+GLOBALME <-
+  GLOBALME %>%
+  mutate(GDPBySector = 0.01*GDP*GDPShare)
+
+# Renaming specific variables to more comprehensible names.
+GLOBALME <-
+  GLOBALME %>%
+  rename(CountryCode = CC) %>%
+  rename(Country = CN)
+
+# Renaming regional categories.
+GLOBALME$Region[GLOBALME$Region == "SSA"] <- "Sub-Saharan Africa"
+GLOBALME$Region[GLOBALME$Region == "FCEEUSSR" ] <- "Former Communist"
+GLOBALME$Region[GLOBALME$Region == "MENA"] <- "Middle East and North Africa"
+GLOBALME$Region[GLOBALME$Region == "SA"] <- "South Asia"
+GLOBALME$Region[GLOBALME$Region == "SACAR"] <- "South America"
+GLOBALME$Region[GLOBALME$Region == "WEST"] <- "Western World"
+GLOBALME$Region[GLOBALME$Region == "EAOA"] <- "East Asia"
+
+# Changing the classes of the variables into factors for the categorical 
+# variables and numeric for the numeric variables.
+GLOBALME$CountryCode <- as.factor(GLOBALME$CountryCode)
+GLOBALME$Country <- as.factor(GLOBALME$Country)
+GLOBALME$Region <- as.factor(GLOBALME$Region)
+GLOBALME$Sector <- as.factor(GLOBALME$Sector)
+GLOBALME$GDPShare <- as.numeric(GLOBALME$GDPShare)
+GLOBALME$GDP <- as.numeric(GLOBALME$GDP)
+GLOBALME$LabourForce <- as.numeric(GLOBALME$LabourForce)
+
+# Logarithmizing to reduce heteroscedasticity.
+GLOBALME <-
+  GLOBALME %>%
+  mutate(LnGDPBySector = log(GDPBySector)) %>%
+  mutate(LnLabourForce = log(LabourForce))
+```
+
+<br>
+
+In the followed mixed model regression, 5 variables are used, of which 1 is a dependent variable and 4 are independent variables. The economic sectors are agricultural, industrial, services and manufacturing. Rather than being placed in the results, the data wrangling is instead included in the non-echoed code above under methods. First, 5 original data sets are imported from Excel, of which the data set with the economic sector consists of 4 variables. Then, the variables are merged with an outer join and the doubles are removed with unique().
+
+Next, data wrangling is performed to create tidy data by pivoting the data frame and quadrupling the number of rows by creating an economic sector variable. Then, every observation is categorized by economic sector rather than having separate economic sector variables. As data sets on GDP by sector can not be found, but rather the percentage share of GDP by each sector, a variable that measures GDP by sector is generated with mutate() by multiplying each percentage share by nominal GDP and 0.01. Then, the regions are renamed into having more comprehensible names rather than abbreviations. As can be seen in the appendix, the regions consist of 7 global categories, such as the Western World, sub-Saharan Africa and East Asia. The data set consists of 604 observations that is subdivided into 151 countries. Thereafter, the classes of country, region and sector are transformed into factor variables, whereas nominal GDP and labour force and transformed into numeric variables. The final wrangling of the data set is performed with mutate() by logarithmizing the numeric variables as a measure of reducing potential heteroscedasticity for improving the computational precision of the regression.
+
+The chosen statistical method or test in the 3rd part of the project is the Linear Mixed Effects (LME) model. The LME model can include both random and fixed effects and is well adapted for the data set, as the continuous dependent variable nominal GDP by sector is being regressed on the economic sector variable with more than two categories. Then, the LME model is suitable as it allows for more than a binary categorical independent variable, where the economic sector variable has four categories. The LME model is also suitable for the data set as the regression is performed with a nested double subdivision of countries within mutually exclusive regions. Hopefully, the nested randomization in the performed regression with the LME model can give a larger explanatory power in the conditional coefficient of determination and improve the regression by taking regional quantitative characteristics into account.
+
+Certain visualizations that are given in the exercises are based on having a discrete or continuous main fixed effects variable and do not contribute to this part of the project, as it is based on using an independent factor variable with 4 categories. As each country only has 4 observations in the sector variable, of which labour force is equivalent in every observation within each country, it is not possible visualize the shrinking of the intercepts and slopes toward the global effects. 
+
+# Part 3 Results
+
+```{r Part 3d Results Uncorrelated or Correlated Intercepts and Slopes, echo = FALSE, fig.width = 16, fig.height = 16}
+
+# Extracting the coefficients from an OLS linear model.
+GLOBALME %>% split(.$Region) %>% 
+  map(~ lm(GDPBySector ~ Sector + LabourForce, data = .)) %>% 
+  map(coef) -> CoefRegion
+GLOBALME %>% split(.$Country) %>% 
+  map(~ lm(GDPBySector ~ Sector + LabourForce, data = .)) %>% 
+  map(coef) -> CoefCountry
+
+# Convert to a data frame:
+CoefRegionDF <- data.frame(matrix(unlist(CoefRegion),
+                                  nrow = length(CoefRegion),
+                                  byrow = TRUE),
+                           row.names = names(CoefRegion))
+names(CoefRegionDF) <- c("Intercept", "SectorIndustry", "SectorManufacturing",
+                         "SectorServices","LabourForce")
+CoefCountryDF <- data.frame(matrix(unlist(CoefCountry),
+                                   nrow = length(CoefCountry),
+                                   byrow = TRUE),
+                            row.names = names(CoefCountry))
+names(CoefCountryDF) <- c("Intercept", "SectorIndustry", "SectorManufacturing",
+                          "SectorServices","LabourForce")
+
+# Plotting intercepts vs estimates.
+# Intercepts vs industrial sector estimates by region.
+f1 <-
+  CoefRegionDF %>%
+  ggplot(aes(Intercept, SectorIndustry), colour = row.names(CoefRegionDF)) +
+  geom_point(color = "black") +
+  geom_smooth(method = "lm", colour = "blue", se = FALSE) +
+  labs(x = "Intercept coefficient",
+       y = "Industrial sector coefficient",
+       title = "Figure 18",
+       caption = "Intercept vs Industrial Sector Coefficients by Region") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+# Intercepts vs industrial sector estimates by country.
+f2 <-
+  CoefCountryDF %>%
+  ggplot(aes(Intercept, SectorIndustry), colour = row.names(CoefCountryDF)) +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", se = FALSE) +
+  labs(x = "Intercept coefficient",
+       y = "Industrial sector coefficient",
+       title = "Figure 19",
+       caption = "Intercept vs Industrial Sector Coefficients by Country") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+# Intercepts vs manufacturing sector estimates by region
+f3 <-
+  CoefRegionDF %>%
+  ggplot(aes(Intercept, SectorManufacturing), colour = row.names(CoefCountryDF)) +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", se = FALSE) +
+  labs(x = "Intercept coefficient",
+       y = "Manufacturing sector coefficient",
+       title = "Figure 20",
+       caption = "Intercept vs Manufacturing Sector Coefficients by Region") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+# Intercepts vs labour force estimates by region
+f4 <-
+  CoefRegionDF %>%
+  ggplot(aes(Intercept, LabourForce), colour = row.names(CoefCountryDF)) +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", se = FALSE) +
+  labs(x = "Intercept coefficient",
+       y = "Labour force coefficient",
+       title = "Figure 21",
+       caption = "Intercept vs Labour Force Coefficients by Region") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+f1 + f2 + f3 + f4
+
+
+```
+
+```{r Part 3e Results Correlation test and coefficient of determination, echo = FALSE}
+
+# Extracting correlation coefficients by 2 digits.
+v1 <- round(unlist(cor.test(CoefRegionDF$Intercept, 
+                            CoefRegionDF$SectorIndustry)[4]),2)
+v2 <- round(unlist(cor.test(CoefCountryDF$Intercept, 
+                            CoefCountryDF$SectorIndustry)[4]),2)
+v3 <- round(unlist(cor.test(CoefRegionDF$Intercept, 
+                            CoefRegionDF$SectorManufacturing)[4]),2)
+v4 <- round(unlist(cor.test(CoefRegionDF$Intercept, 
+                            CoefRegionDF$LabourForce)[4]),2)
+# Creating table for the correlation coefficients.
+RandomVariable <- c("Region", "Country", "Region", "Region")
+Variables <- c("Intercept Vs SectorIndustry", "Intercept Vs SectorIndustry", 
+               "Intercept Vs SectorManufacturing", "Intercept Vs Labourforce")
+CorrelationCoef <- c(v1, v2, v3, v4)
+CorrDF <- data.frame(RandomVariable, Variables, CorrelationCoef)
+CorrDF %>%
+  flextable() %>%
+  set_caption("Results. Correlation coefficients. Table 15.")
+```
+
+```{r Part 3f Results Coefficients of Determination, echo = FALSE}
+
+# Coefficients of determination.
+# Extracting the coefficients of determination.
+rsq1 <- round(r.squaredGLMM(lm(Intercept ~ SectorIndustry + LabourForce
+                               , data = CoefRegionDF))[1], digits = 3)
+rsq2 <- round(r.squaredGLMM(lm(Intercept ~ SectorManufacturing + LabourForce, 
+                         data = CoefRegionDF))[1], digits = 3)
+rsq3 <- round(r.squaredGLMM(lm(Intercept ~ SectorServices + LabourForce, 
+                         data = CoefRegionDF))[1], digits = 3)
+
+# Creating table for the coefficients of determination by sector and labour force.
+IndependentVariables <- c("SectorIndustry and LabourForce", 
+                "SectorManufacturing and LabourForce", 
+               "SectorServices and LabourForce")
+RSquared <- c(rsq1, rsq2, rsq3)
+CorrOfDetermDF <- data.frame(IndependentVariables, RSquared)
+CorrOfDetermDF %>%
+  flextable() %>%
+  set_caption("Results. Coefficients of determination. Table 16.") %>%
+  add_header_row(values = c("Dependent variable: Intercept coefficients", ""),
+                 colwidths = c(1,1))
+
+```
+
+In order to determine whether the LME regression should have uncorrelated or correlated random intercepts and slopes, the graphs and correlation tests are given above. After first extracting the coefficient estimates of the intercepts, as well as the beta coefficient estimates for the different sectors and labour force, the coefficients are saved as variables a data frame. Thereafter, four figures are generate above that show the distribution between intercept coefficients and the other respective coefficients. The figures indicate that the observations are not neatly distributed along the fitted lines. Though, the correlation coefficients in table 15 indicate that the figures are misleading as their respective correlation coefficients range between 0.78 and 0.87 in absolute value. Also, even though the extraction of the coefficients of determination is not part of the instructions, these are given in table 16 above. Their respective values range between 0.973 and 0.999 while regressing the intercept coefficients on labour force and the respective economic sectors. These tests indicate that the LME regression should be performed with correlated random intercepts and slopes. Though, first an Anova test is performed below to determine whether random effects should be used in the regression.
+
+```{r Part 3g Results, echo = FALSE}
+
+# The regression including the random effects.
+MixedEffectsRegression <-lme(LnGDPBySector~Sector+LnLabourForce, data = GLOBALME, 
+                random = ~1|Region/Country, method="REML")
+# The regression excluding the random effects.
+GLSRegression <-gls(LnGDPBySector~Sector+LnLabourForce, data = GLOBALME,
+                method="REML")
+# The Anova test
+ANOVA1 <- as.data.frame(anova(MixedEffectsRegression, GLSRegression))
+ANOVA1 <- rownames_to_column(ANOVA1, "Variable")
+ANOVA1 <-
+  ANOVA1 %>%
+  select(-2)
+ANOVA1$`p-value` <- c("","2.2e-16")
+ANOVA1 %>%
+  flextable() %>%
+  set_caption("Results. Type II Anova test for random intercept and slope. Table 17.")
+
+
+```
+
+The Anova test above is performed to test whether random effects should be used in the regression. If the regressions with and without random effects are significant at p/2 < 0.05, the null hypothesis of similarity is rejected and random effects should be used. As the Anova test is based on a one-tailed hypothesis, the p-value needs to be divided by 2 to be approximately equivalent to a two-tailed hypothesis. However, as the p-value is far lower than the cut-off significance level, random effects should be used as the random slopes and the random intercepts affect the regression. Also, the results are equivalent irregardless of if the Anova test is of type I, II or II.
+
+```{r Part 3h Results, fig.width = 10, fig.height = 6}
+
+# Mixed effects regression with a correlated intercept and slope.
+MEREG4NEST1CORR <- lmer(LnGDPBySector ~ Sector + LnLabourForce + 
+                          (1 + LnLabourForce|Region/Country), 
+                        data = GLOBALME)
+# Linear OLS regression.
+LMREG <- lm(LnGDPBySector ~ Sector + LnLabourForce, data = GLOBALME)
+# Saving the mixed effects regression and the OLS regression in a list.
+REGLIST <- list()
+REGLIST[['ME (1)']] <- lmer(LnGDPBySector ~ Sector + LnLabourForce + 
+                              (1 + LnLabourForce|Region/Country), 
+                            data = GLOBALME)
+REGLIST[['LM (2)']] <- lm(LnGDPBySector ~ Sector + LnLabourForce, data = GLOBALME)
+# Renaming intercept to constant.
+INTERCEPTN <- c('(Intercept)' = 'Constant')
+# Extracting the marginal- and conditional coefficients of determination.
+CMRSQR <- tribble(~term,          ~"ME (1)", ~"LM (2)",
+                'Marginal R-squared', r.squaredGLMM(MEREG4NEST1CORR)[1],
+                r.squaredGLMM(LMREG)[1],
+                'Conditional R-squared', r.squaredGLMM(MEREG4NEST1CORR)[2],
+                r.squaredGLMM(LMREG)[2],
+                'Average VIF', sum(vif(MEREG4NEST1CORR))/length(vif(MEREG4NEST1CORR)),
+                sum(vif(LMREG))/length(vif(LMREG)))
+# Creating the mixed effects regression Table
+modelsummary(REGLIST, output = 'kableExtra',
+             coef_rename = INTERCEPTN, stars = TRUE,
+             gof_omit = 'IC|Log|Adj|R2|F', add_rows = CMRSQR) %>%
+  add_header_above(c("Dependent variable: GDP By Sector","",""), 
+                   font_size = 14, align = "l") %>%
+  add_header_above(c("Results. Mixed effects regression. Table 18.","",""),
+                   font_size = 20, align = "l")
+
+```
+
+```{r Part 3o Results, echo = FALSE, fig.width = 16, fig.height = 16}
+
+# Bayesian Table
+Median <- c(7.5,1.4,0.6,2.2,0.9)
+MAD_SD <- c(0.6,0.1,0.1,0.1,0.0)
+BAYREGDF <- data.frame(Median, MAD_SD)
+rownames(BAYREGDF) <- c('Intercept','SectorIndustry','SectorManufacturing',
+                  'SectorServices','LnLabourForce')
+BAYREGDF <- rownames_to_column(BAYREGDF, "Estimate")
+BAYREGDF %>%
+  flextable() %>%
+  set_caption("Results. Bayesian estimation. Table 19.")
+
+```
+
+The estimates in ME(1) are highly significant where every fixed effects variable is statistically significant at 0.1%. Even though this does not show in the results above, the variables in ME(1) are statistically significant at a minimum of 0.00000435%. Bootstrapped estimates are given in the appendix and only shows that a minor bias is present prior to bootstrapping. The estimate for the agricultural economic sector is automatically omitted to avoid perfect collinearity and the dummy variable trap. Also, the estimates of the economic sectors can only be interpreted in comparison to each other. As the model is log-linear regarding the economic sectors, the estimates are interpreted as follows. The industrial sector on average contributes 142% more to nominal GDP than the agricultural sector. The manufacturing sector on average contributes 57.8% more to nominal GDP than the agricultural sector. The Services sector on average contributes 220% more to nominal GDP than the agricultural sector. As the model is log-log regarding labour force, this estimate is interpreted as follows. If labour force increases by 1 percentage point, nominal GDP on average increases by 0.976 percentage points, all else equal. As the estimate of labour force is approximately 1, this can possibly occur because the average percentage point of workers, on average produces 1% of nominal GDP. The second regression LM(2) is performed with a regular linear model with OLS and will not be mentioned in detail. The estimates of LM(2) are highly similar to the estimates of ME(1) with only minor differences in beta coefficients and significance levels. LM(2) is included for the purpose of being used in the discussion. The Bayesian estimation for the regression model is given in table 19 above. Every estimate except for the intercept is equivalent to ME(1) when it is rounded to 1 decimal. 
+
+# Part 3 Results, Diagnostics
+
+```{r Part 3ib Results Diagnostics, echo = FALSE, fig.width = 16, fig.height = 16}
+
+# Generating fitted values and residuals.
+GLOBALME <-
+  GLOBALME %>%
+  mutate(RESID = resid(MEREG4NEST1CORR)) %>%
+  mutate(FITTED = fitted(MEREG4NEST1CORR))
+# Creating plots of residuals by fitted values.
+P1 <-
+  GLOBALME %>% 
+  filter(Sector == "Agriculture") %>%
+  ggplot(aes(FITTED, RESID)) +
+  geom_point(color = "blue", size = 3) +
+  facet_wrap(~ Sector, nrow = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", size = 0.3) +
+  labs(x = "Fitted Values",
+       y = "Residuals",
+       title = "Figure 22",
+       caption  = "Diagnostics. Residuals by fitted values.") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P2 <-
+  GLOBALME %>% 
+  filter(Sector == "Industry") %>%
+  ggplot(aes(FITTED, RESID)) +
+  geom_point(color = "magenta", size = 3) +
+  facet_wrap(~ Sector, nrow = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", size = 0.3) +
+  labs(x = "Fitted Values",
+       y = "Residuals",
+       title = "Figure 23",
+       caption  = "Diagnostics. Residuals by fitted values.") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P3 <-
+  GLOBALME %>% 
+  filter(Sector == "Manufacturing") %>%
+  ggplot(aes(FITTED, RESID)) +
+  geom_point(color = "black", size = 3) +
+  facet_wrap(~ Sector, nrow = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", size = 0.3) +
+  labs(x = "Fitted Values",
+       y = "Residuals",
+       title = "Figure 24",
+       caption  = "Diagnostics. Residuals by fitted values.") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P4 <-
+  GLOBALME %>% 
+  filter(Sector == "Services") %>%
+  ggplot(aes(FITTED, RESID)) +
+  geom_point(color = "red", size = 3) +
+  facet_wrap(~ Sector, nrow = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", size = 0.3) +
+  labs(x = "Fitted Values",
+       y = "Residuals",
+       title = "Figure 25",
+       caption  = "Diagnostics. Residuals by fitted values.") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P1 + P2 + P3 + P4
+
+```
+
+The plots above show residuals by fitted values for each economic sector in the performed mixed effects regression. Heteroscedasticity is present in every economic sector in the figures above, but it is difficult to determine which sector that is more or less heteroscedastic than the other. Unfortunately, the Breusch-Pagan test is not available for lmer(), which means that a statistical computation is not possible for determining if heteroscedasticity is present. Though, Q-Q plots are yet to be shown below for further evaluation.
+
+```{r Part 3j Results Diagnostics, echo = FALSE, fig.width = 16, fig.height = 16}
+
+# Generating a residual variable that is divided by each sector based standard
+# deviation.
+GLOBALME <-
+  GLOBALME %>%
+  group_by(Sector) %>%
+  mutate(SDRESID = RESID/sd(RESID))
+## Q-Q plot of residuals.
+P5 <-
+  GLOBALME %>%
+  filter(Sector == "Agriculture") %>%
+  ggplot(aes(sample = SDRESID)) +
+  geom_qq(color = "blue") +
+  geom_qq_line(color = "blue") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 26",
+       caption  = "QQ-plot of the agricultural sector") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P6 <-
+  GLOBALME %>%
+  filter(Sector == "Industry") %>%
+  ggplot(aes(sample = SDRESID)) +
+  geom_qq(color = "magenta") +
+  geom_qq_line(color = "magenta") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 27",
+       caption  = "QQ-plot of the industry sector") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P7 <-
+  GLOBALME %>%
+  filter(Sector == "Manufacturing") %>%
+  ggplot(aes(sample = SDRESID)) +
+  geom_qq(color = "black") +
+  geom_qq_line(color = "black") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 28",
+       caption  = "QQ-plot of the manufacturing sector") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P8 <-
+  GLOBALME %>%
+  filter(Sector == "Services") %>%
+  ggplot(aes(sample = SDRESID)) +
+  geom_qq(color = "red") +
+  geom_qq_line(color = "red") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 29",
+       caption  = "QQ-plot of the service sector") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P5+P6+P7+P8
+
+```
+
+The residuals in the figures above are only vaguely S-shaped, except for in manufacturing where there is heteroscedastic bias at the lower and of the quantiles. Though, the QQ-plots above indicate that the overall level of heteroscedasticity is relatively low. This can probably be mainly contributed to the logarithmization of the dependent variable, that prior to this transformation has a huge variation with many outliers.
+
+```{r Part 3m Results Diagnostics, echo = FALSE, fig.width = 10, fig.height = 6}
+
+# QQ-plot of random effects of intercepts and the slope of labour force, respectively.
+T1 <-
+  ranef(MEREG4NEST1CORR)$Country %>%
+  ggplot(aes(sample = `(Intercept)`)) +
+  geom_qq(color = "blue") +
+  geom_qq_line(color = "blue") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 30",
+       caption  = "QQ-plot of the random effects in intercepts") +
+  theme(plot.title = element_text(hjust = 0.5, size = 30),
+        plot.caption = element_text(hjust = 0.5, size = 14),
+        axis.text = element_text(size = 16),
+        text = element_text(size = 20))
+T2 <-
+  ranef(MEREG4NEST1CORR)$Country %>%
+  ggplot(aes(sample = `LnLabourForce`)) +
+  geom_qq(color = "blue") +
+  geom_qq_line(color = "blue") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 31",
+       caption  = "QQ-plot of the random effects in slopes. ") +
+  theme(plot.title = element_text(hjust = 0.5, size = 30),
+        plot.caption = element_text(hjust = 0.5, size = 14),
+        axis.text = element_text(size = 16),
+        text = element_text(size = 20))
+T1 + T2
+
+```
+
+According to the figures above, the distribution of the residuals are relatively homoscedastic within the random intercepts and random slopes, thus indicating a low level of bias in the performed mixed effects regression.
+
+```{r Part 3k Results Diagnostics, echo = FALSE, fig.width = 8, fig.height = 5}
+
+# Box plot of standardized residuals. 
+GLOBALME %>%
+  ggplot(aes(Sector, SDRESID, color = Sector)) +
+  geom_boxplot() +
+  coord_flip() +
+  ylim(c(-4,4)) +
+  xlab("Residuals in number of standard deviations") + 
+  ylab("Sector") +
+  ggtitle("Figure 32") +
+  labs(caption = "Diagnostics box plot for spread of residual standard deviations") +
+  theme(plot.title = element_text(size = 20, hjust = 0.5),
+        plot.caption=element_text(size = 14, hjust = 0.5))
+
+```
+
+The residuals are transformed prior to generating Figure 32 above. For the importance of the different sectors to be fully comparable in the regression, the residuals are divided by 1 standard deviation after being grouped by sector. Therefore, the plot above shows the spread of the residuals in standard deviations. The distribution of the residuals do not vary greatly between the sectors, where 50% of the residuals are concentrated within approximately 0.8 standard deviations in absolute value from the median. The approximately equivalent spread of the residuals of the sectors above is connected to the similarities in the p-values of the estimates. 
+
+```{r Part 3l Results Diagnostics, echo = FALSE, fig.width = 16, fig.height = 16}
+
+# Post hoc Tukey's test.
+tukeytest <- emmeans(MEREG4NEST1CORR, list(pairwise ~ Sector), adjust = "tukey")
+tukeyreduection <- tukeytest[2]
+tukeyDF <- as.data.frame(tukeyreduection)
+tukeyDF <-
+  tukeyDF %>%
+  select(1,2,5,6)
+tukeyDF$PWSECTOR <- tukeyDF$pairwise.differences.of.Sector.1
+tukeyDF$EstimatedDiff <- tukeyDF$pairwise.differences.of.Sector.estimate
+tukeyDF$EstimatedDiff <- round(tukeyDF$EstimatedDiff, digits = 3)
+tukeyDF$t.value <- tukeyDF$pairwise.differences.of.Sector.t.ratio
+tukeyDF$p.value <- tukeyDF$pairwise.differences.of.Sector.p.value
+tukeyDF$p.value <- "2.2e-16"
+tukeyDF$p.value[2] <- "5.14e-11"
+tukeyDF <-
+  tukeyDF %>%
+  select(-1,-2,-3,-4)
+tukeyDF <- as_tibble(tukeyDF)
+tukeyDF %>%
+  flextable() %>%
+  set_caption("Results, diagnostics. Post hoc test. Tukey's test. Table 20.")
+
+```
+
+The Tukey's test above shows that the differences between the estimates of the sectors are very statistically significant, where nearly every comparison has a p-value of < 2.2e-16. Also, the difference between the economic sectors in the beta coefficients of the estimates are given under "EstimatedDiff", that coincide with the estimates in the performed mixed effects regression. The pairwise comparisons between agriculture and the three other sector are equivalent in absolute values to the estimates in the performed regression in table 18, as well as the relative differences between the estimates of the other economic sectors.
+
+```{r Part 3n Results Diagnostics, echo = FALSE, fig.width = 16, fig.height = 16}
+
+# Type II Anova test for testing whether the means of the sectors are different within the performed mixed effects regression.
+ANOVA2 <- as.data.frame(anova(MEREG4NEST1CORR, type = "II"))
+ANOVA2 <- rownames_to_column(ANOVA2, "Variable")
+ANOVA2 <-
+  ANOVA2 %>%
+  select(-2)
+ANOVA2$`Pr(>F)` <- c("3.0e-100","5.3e-36")
+ANOVA2 %>%
+  flextable() %>%
+  set_caption("Results. Type II Anova test for random intercept and slope. Table 21.")
+
+```
+
+The Anova test below means that there are statistically significant differences between the mean values of the sectors within the regression, where the null hypothesis of similarity is rejected by an extreme length with a p-value of approximately 3e-100. The statistically significant estimate of "LnLabourForce" is not of interest as it is not a categorical variable. As an interaction variable is not used, a type II Anova is chosen instead of a type III Anova. Though, the three types of Anova tests give relatively equivalent results.
+
+# Part 3 Discussion
+
+As the coefficients of the estimates and the significance levels are highly similar between the regressions of ME(1) and LM(1) in table 18, it indicates that GDP by sector is strongly predicted by economic sectors and the labour force in the data itself. As the average Variance Inflation Factor (VIF) is 1.33, it indicates that the computational precision is high in both regressions in this regard. Though, the conditionality on regions and countries as well as the random slopes increases the coefficient of determination by 21.2 percentage points, which is a clear indicator of the benefits when running a mixed effects regression. This very large coefficient of determination of 89.5% is rare in economic research, and can be credited to the use of random effects in the performed regression. Certain importance within the regression is directed towards the fixed effects of labour force, which means that the regression is not entirely adapted to the question of research. The slope of labour force is conditional on the nested random variables of countries within the regions, as it otherwise led to computational problems and a lack of statistical convergence. Though, do not suspect that this conditionality on the slope creates weaknesses in the regressed model, as labour force has a large variation in the data. 
+The Bayesian regression took approximately 20 minutes to perform with 16 gigabytes of RAM memory as it had to iterate through 1057 nested countries within regions, with 151 countries multiplied by 7 regions. Though, it was successfully implemented and the estimates of the sector variables and labour force are equivalent to the estimates in the performed mixed effects regression of ME(1). This indicates that the complex model with a large multitude of random effects does not create computational problems in ME(1), despite not being performed with a prior distribution.
+
+There is often a tendency to focus on significance levels while answering a research question. The null hypothesis of similarity between the sectors is stated in the introduction, even though it is not directly connected to the research question as the latter is more of an open question. As every economic sector estimate is highly statistically significant, the null hypothesis can be falsely assumed in this regard. As the post hoc Tukey's test and Anova test show in table 20 and table 21, the economic estimates of the economic sectors are different with very low p-values. Though, as they are very different from each other in the post hoc test, it gives no information on whether or not an estimate is more important than the other. The importance of the economic sectors in explaining nominal GDP can mainly be determined by checking the magnitude of the estimates, where services, industry, manufacturing and agriculture have the largest to the smallest effect on nominal GDP in a descending order. Therefore, the research question on how the economic sectors are different from each other is answered by focusing on the diagnostics in the Tukey's test and the magnitude of the estimates in the results.
+
+# Part 4 Introduction
+
+The fourth part of the project is performed to analyze data on the countries of the world, where the purpose of this part of the project is to statistically analyze country based data with Principal Component Analysis (PCA). The research question is to look for political and economic factors that create differences between the countries of the world. Country based quantitative characteristics can typically be measured by a number of different factors. Such characteristics can be economic measurements and political measurements. Examples of economic factors are GDP based measurements and economic inequality, whereas examples of political factors often are different indices that measure political systems and political stability. The research question is based on combining a multitude of factors from a cross-disciplinary perspective of economic indicators and political indicators.    
+
+An online version of the course curriculum Modern Statistics with R is provided by the university and is authored by Mans Thulin (2021), which is the literature that is used as a foundation to perform statistical tests by using the principal component analysis model. The default help function in R and online error searches are also used while completing part 4 of the project.
+
+# Part 4 Methods
+
+The data used for the Principal Component Analysis is compiled and gathered by the World Bank (2021), the Center for Systemic Peace (2018; 2020), the International Monetary Fund (2020), Transparency International (2019) and the World Inequality Database (2019). As in the 2nd part of the project, these organisations have a high level of validity as they are frequently used in scientific research which is peer reviewed by other academics. The World Bank extracts data from official governmental sources and uses professional management units while collecting the data by their own initiation. The Systemic Peace Institute extracted data from Keesing's Record of World Events and it were also cross-referenced to other sources. Transparency International uses a systematic approach while gathering data based on peoples experiences and towards corruption within their respective countries. The World Inequality Database uses a systematic approach while collecting data from national accounts, fiscal reports and wealth rankings. 
+
+The chosen year for the data set is 2019, where this year is chosen to avoid using data that include irregular macroeconomic volatility that occurred because of the pandemic and also because more observations are gathered and published with some duration prior to the previous year.
+
+```{r Part 4 Methods Descriptive Table, echo = FALSE}
+
+# Variables by description.
+DESCR4 <- data.frame(Variable_Name = c("GDPGROWTH","PolityIV","NominalGDP",
+                                       "PerCapitaGDP","CorruptionPerception",
+                                       "PoliticalStability","StateFragility",
+                                       "WorkingAge","MedianAge","IncomeInequality",
+                                       "Unemployment","PoliticalSystem",
+                                       "Country"),
+                    
+                    Measuring = c("Per capita GDP growth %",
+                                  "Polity IV Democracy Index (-10 to 10)",
+                                  "Nominal GDP by country (millions USD). ",
+                                  "Per capita GDP (USD)",
+                                  "Corruption index (1 to 100)",
+                                  "Political stability index",
+                                  "State fragility index",
+                                  "Percentage of population of working age",
+                                  "Median age",
+                                  "Share of income by top 10%",
+                                  "Unemployment rate %",
+                                  "Country category, factor variable",
+                                  "Democracy, anocracy or autocracy, factor variable"))
+DESCR4 %>%
+  kable(caption = "Variables by description. Table 24.", format = "html")
+
+```
+<br>
+
+13 variables are used in the PCA, 11 of which are numeric variables and 2 are factor variables. The second numeric variable above, the "PolityIV" democracy index is measured on a range of -10 to +10, from extreme autocracy to extreme democracy. Specifically for this part of the project, this categorical variable is generated with cut-off values of -10 to -5 for autocracy, -4 to 5 for the middle category of anocracy and 6 to 10 for democracy. Therefore the first factor variable "PoliticalSystem" measures cut-off interval categories of political systems. As this categorical variable is based on cut-off intervals, I have chosen not perform a Permanova test as the results would be biased due to the categories not being completely separate.
+
+As the chosen statistical method for the fourth part of the project is PCA, a relatively large number of variables are included to properly capture the variance in the principal component analysis. A range of numeric variables are included, that are mostly used in the fields of quantitative economics and quantitative political research. In order to properly capture the variation, demographic variables, such as median age and economic variables, such as GDP growth are combined to properly visualize the pull effects that certain loadings might have to specific countries and political systems. Though, as Mans Thulin (2011) mentions, "Principal component analysis is more likely to yield a useful result if several variables are correlated.". Despite the lower cumulative proportion of variance that are explained by a large range of not necessarily highly correlated numeric variables, I have chosen to include a mulitude variables with the cost of using a number of PCA plots that is larger in number. 
+
+The first categorical variable "Country" is used to visually aid the viewer to pinpoint the location of specific data points and the second categorical variable "PoliticalSystem" serves as an additional visual aid for the type of political system of each country. The latter categorical variable is used to aid the viewer to find aspects where data points might differ and have similarities. The figures in this part of the project will only differ in the chosen combinations of PCA components and not be different in the aspect of factor categories.
+
+In the choice between NMDS and PCA, the latter is chosen. While motivating the statistical test, the orthogonal computation in PCA is a preferred way of minimizing bias, especially when linear models mostly suffer from substantial multicollinear bias when including a multitude of different variables, which in this case consists of 11 numeric variables. PCA is an excellent approach when variables are reduced into eigenvectors, then the condition of orthogonality reduces the bias to tiny fractions that probably occur due to computational round-off errors. Also, as NMDS is mainly used for biological data, a statistical comparison of different economic factors and political factors is not suitable for my field of interest when political variables and economic variables can not be statistically computed with the same method as OTU:s. Also, PCA gives an efficient overview of the variation within the variables of the data frame where one can easily pinpoint and compare different country based data points.
+
+# Part 4 Results
+
+# Part 4 Results, Outline
+
+As in the first part of assignment 3, the results in this part of the project are also divided into two separate subchapters, with a quantitative- and  a plot based subchapter, respectively. If this had been my first principal component analysis, there would have been tries in standardization and centering, but no mutation of the variables is made as the computation of PCA performs this automatically. The previous assignment also showed that interaction variables and such necessarily do not improve the proportion of variance captured by the first two principal components. The cumulative proportion of variance of the first two or three principal components should ideally be maximal, but instead I have chosen not to perform prior transformations before using the included numeric variables in the PCA.
+
+# Part 4 Results, Quantitative Aspects
+
+```{r Part 4a Renaming Converting Omitting Results, echo = FALSE, results = 'hide'}
+
+# Renaming the data set
+GLOBAL <- X2019Data
+
+# Converting the country variable into factor.
+GLOBAL$Country <- as.factor(GLOBAL$Country)
+
+# Omitting rows where with at least one missing observation.
+GLOBAL <- na.omit(GLOBAL)
+
+```
+
+The data set is transformed to avoid computational problems with the principal component analysis, by omitting all rows where at least one observation is missing, which reduces the size of the data set from 188 rows to 144 rows. Though, many of the omitted countries have a small population, often coupled with a low level of development. In the principal component analysis, this creates a certain bias towards more populous and developed countries, but this measure is necessary as principal component analysis does not allow for missing observations.
+
+
+```{r Part 4b Results, echo = FALSE}
+
+# Create table of eigenvalues and proportion of variance.
+CONTVAR <- 
+  GLOBAL %>%
+  select(-1)
+PCAPCA <- PCA(CONTVAR, graph=FALSE)
+PCAPCASUM <- as.data.frame(get_eig(PCAPCA))
+PCAPCASUM %>%
+  flextable() %>%
+  set_caption("PCA eigenvalues and proportion of variance. Table 25.")
+
+```
+
+```{r Part 4ba Results, echo = FALSE, results = 'hide'}
+
+# Checking if the mean eigenvalue is equal to 1.
+sum(as.data.frame(get_eig(PCAPCA))[1])/count(as.data.frame(get_eig(PCAPCA))[1]) == 1
+
+```
+
+The eigenvalues of all principal components are shown in the table above. According to Abdi & Williams (2010) in "Principal Component Analysis", each eigenvalue above is a ratio of the contribution of each PCA that is associated with that component. This also corresponds to the proportion of variance of each component. Abdi & Williams also mention that the importance of principal components can be divided by a rule of thumb, at the point where the slope in the screenplot goes from "steep" to "flat", with occurs at an eigenvalue of 1 as a rule of thumb. As shown in the appendix, the sum of the mean value of the principal components divided is 11 and the number of components are 11, of which the Boolean statement of equaling 1 is true. The output of this Boolean statement essentially means that the average eigenvalue is 1, thus meaning that the mean eigenvalue equals 1. There are two different ways of determining the limitations of the number of principal components. The first way is to use the previously mentioned cut-off value of 1 for the point of the bend as a rule of thumb, whereas the other way is to keep principal components whose eigenvalues exceed the mean. Though, in the performed PCA in this part of the project, the two are equivalent irrespective of which tradition one uses. Therefore, the four most important principal components are used, where the fourth principal component barely exceeds a value of 1 with an eigenvalue of 1.002.
+
+```{r Part 4c Computing PCA Results, echo = FALSE, results = 'hide'}
+
+# Compute principal components by country.
+PCA1 <- princomp(~ GDPGrowth+PolityIV+NominalGDP+PerCapitaGDP+
+                          PerCapitaGDP+CorruptionPerception+
+                          PoliticalStability+StateFragility+WorkingAge+
+                          MedianAge+IncomeInequality+Unemployment
+                          , cor = TRUE,
+                        data = GLOBAL)
+```
+```{r Part 4d PCA Output Table Results, echo = FALSE}
+
+# Function to create table for PCA output. Taken from stackoverflow.
+pca_importance <- function(x) {
+  vars <- x$sdev^2
+  vars <- vars/sum(vars)
+  rbind(`Standard deviation` = x$sdev, `Proportion of Variance` = vars, 
+        `Cumulative Proportion` = cumsum(vars))
+}
+PCASUM <- as.data.frame(pca_importance(summary(PCA1)))
+PCASUM <- rownames_to_column(PCASUM, " ")
+PCASUM %>%
+  flextable() %>%
+  set_caption("PCA stdev. and variance. Table 26.")
+
+```
+
+```{r Part 4e Screeplot Results, echo = FALSE, fig.width = 15, fig.height = 6}
+
+# Create screeplot.
+CONTVAR <- 
+  GLOBAL %>%
+  select(-1)
+PCAPCA<-PCA(CONTVAR, graph=FALSE)
+fviz_screeplot(PCAPCA, addlabels = TRUE, ylim = c(0, 40), ncp = 15, 
+               caption = "Screeplot. Proportion of variance by PC",
+               main = "Figure 33") +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 16),
+        axis.text = element_text(size = 16),
+        plot.caption = element_text(size = 25, hjust = 0.5),
+        plot.title = element_text(size = 30, hjust = 0.5))
+
+
+```
+
+Instead of basing the limitation of the number of principal components on the proportion of variance, the segment with the eigenvalues are instead mentioned before the table and figure above. As shown in table 25 and the screeplot, the first and the second principal components explain 51.4% of the proportion of variance, with 38.7% and 12.6% respectively. 71.7% the cumulative proportion of variance is explained by the fourth principal component. All in approximate figures.
+
+As only the four most important principal components with eigenvalues that exceed 1 are included in the figures that follow below, only 71.7% of the cumulative proportion of variance is visualized by using every principal component until the fourth variable. Therefore, 28.3% of the proportion of variance will be left unexplained in this part of the project. As PCA essentially is a way of creating variables in the form of principal components, a larger number of variables can be reduced to principal components that are fewer in number, but with the loss of some cumulative proportion of variance in the case when less important principal components are excluded while visually analyzing the results.
+
+```{r Part 4f Results, echo = FALSE}
+
+# Six most important PCA:s by loading.
+ALOAD <- as.data.frame(unclass(loadings(PCA1)))[1:4]
+ALOAD <- rownames_to_column(ALOAD, " ")
+ALOAD %>%
+  flextable() %>%
+  set_caption("Principal component by loading. Table 27.")
+
+```
+
+The correlations within the principal components vary by each loading. Therefore, the correlation based by each variable can only be analyzed within each principal component, and not between them. The assumption of orthogonality creates differing loading correlations and results can be optimally verified if the relation of a variable to other variable is consistent between the included principal components. This pattern can be looked for if certain variables are visually directed towards the same country based data points throughout the principal components. If this is not consistent throughout the included principal components, certain relations between data points and variables can not be verified.
+
+In the first principal component above, "PerCapitaGDP", "CorruptionPerception", "PolitcalStability" and "MedianAge" have similar loadings in the proximity of -0.4. The respective loadings of these variables do not deviate a lot from the center in the second, third and fourth principal components, with loadings values relatively close to 0. This indicates that a sufficient number of data points have a standard of living, a low level of corruption and a large share of elderly inhabitants. Though, for the reader this is yet to be visually verified in the PCA based scatterplot below.
+
+```{r Part 4g Results, echo = FALSE, results = 'hide'}
+
+# Create PolityIV category by cutoff. Then that factor variable is used for 
+# color and label.
+GLOBAL$PoliticalSystem <- cut(GLOBAL$PolityIV,
+                                breaks=c(-11, -4, 5, 11),
+                              labels=c('Autocracy', 'Anocracy', 'Democracy'))
+
+```
+
+```{r Part 4h Results, echo = FALSE, fig.height = 15, fig.width = 15}
+
+# Plot PCA1 and PCA2 by political system
+autoplot(PCA1, x=1,y=2, data = GLOBAL, colour  = 'PoliticalSystem', size = 4L, loadings = TRUE, 
+         loadings.colour = 'blue', loadings.label = TRUE, 
+         loadings.label.size = 6L) +
+  theme_light() + 
+  scale_colour_discrete("PoliticalSystem") + 
+  geom_text_repel(label = GLOBAL$Country, max.overlaps = 6, size = 6L) +
+  labs(x = "Principal component 1",
+       y = "Principal component 2",
+       title = "Figure 34",
+       caption = "Scatterplot of PCA1 and PCA2 by Country.") +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5, size = 50),
+        plot.caption = element_text(hjust = 0.5, size = 28))
+
+```
+
+First, the previously mentioned factor variable "PolticalSystem" is created above. As appearent in the plot above, "PoliticalSystem" serves to visually aid the viewer as a category. The division between countries of different political systems is clear, with democracies to the left, anocracies to the right and autocracies in the lower part of the data points. The most politically fragile  and unstable countries are anocracies, in the direction of the correlation "StateFragility". The most stable are democracies, but this also shows that many relatively politically stable countries are dictatorships, such as the data points of China and Qatar. The figure above also indicates that the poorest countries in the opposite direction of the loading of GDP per capita do not have the highest unemployment rate, but that a high level of unemployment is typical for middle income countries, such as Armenia and Guyana. Also, it indicates that the countries with high levels of unemployment are all democracies and that dictatorships on the opposite end have the lowest level of unemployment, with anocracies in the middle.
+
+The data points of Arabic countries in the southern parts of the Persian Gulf, such as Kuwait, the United Arab Emirates and Qatar are all located around the extreme of the loadings of working age population. This indicates that they have a very high share of guest workers and few children and elderly people. Also, unemployment and working age have relatively opposite loadings, which also indicates low birth rates and high emigration in the data points with high unemployment. Income inequality is mainly in the direction of autocracies, such as Bangladesh and Laos. According to the figure above, democracies such as Finland and France have an opposite relationship to income inequality. Another finding along the negative correlation to the first principal component shows that a high level of corruption, a large share of elderly, a high average income and political stability is associated with largely rich democracies in the Western world. A low level of corruption can possibly be linked to a high per capita GDP and political stability. On the opposite of end of these variables, one finds unstable, poor and politically corrupt countries with a young population. This indicates high recent birth rates, low productivity and instability for ruling governments.
+
+```{r Part 4i Results, echo = FALSE, results = 'hide', fig.height = 15, fig.width = 15}
+
+" Plot PCA1 and PCA3 by political system "
+autoplot(PCA1, x=1, y=3, data = GLOBAL, colour  = 'PoliticalSystem', size = 4L, loadings = TRUE, 
+         loadings.colour = 'blue', loadings.label = TRUE, 
+         loadings.label.size = 6L) +
+  theme_light() + 
+  scale_colour_discrete("PoliticalSystem") + 
+  geom_text_repel(label = GLOBAL$Country, max.overlaps = 6, size = 6L) +
+  labs(x = "Principal component 1",
+       y = "Principal component 3",
+       title = "Figure 35",
+       caption = "Scatterplot of PCA1 and PCA3 by Country.") +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5, size = 50),
+        plot.caption = element_text(hjust = 0.5, size = 28))
+
+```
+
+The countries in this direction largely consists of developing countries with high percentage based economic development, such as Rwanda, Vietnam, Cambodia and Bangladesh. Countries on the other extreme are indicates to be in recession or be in a state of low economic growth, such as Argentina, Lebanon and Brazil. Another interesting finding is that income inequality and economic growth are opposite of each other, which indicates that high levels of contemporary economic progress occurs in countries with a relatively equalized distribution of income.
+
+Variables such as median age, corruption perception and the Polity IV democracy index are not highly relevant here with very low correlation to PCA3 and PCA4. Also, this might be coupled with the data points not being clustered within their respective political systems, where data points that are categorized as democracies are spread throughout most of the visualized distribution. This can be viewed by perceiving how large the loadings are in absolute value in how much they deviate from the origin of (x,y) = (0,0). In figure 34, variables have a more even degree of importance when nearly every variable has a relatively sizable correlation to at least either PCA1 or PCA2. In figure 35 above, this is clearly not the case where some variables have very small loadings in absolute number, while other variables have very large loadings. 
+
+```{r Part 4j Results, echo = FALSE, results = 'hide', fig.height = 20, fig.width = 15}
+
+" Plot PCA1 and PCA4 by political system "
+autoplot(PCA1, x=1, y=4, data = GLOBAL, colour  = 'PoliticalSystem', size = 4L, loadings = TRUE, 
+         loadings.colour = 'blue', loadings.label = TRUE, 
+         loadings.label.size = 6L) +
+  theme_light() + 
+  scale_colour_discrete("PoliticalSystem") + 
+  geom_text_repel(label = GLOBAL$Country, max.overlaps = 6, size = 6L) +
+  labs(x = "Principal component 1",
+       y = "Principal component 4",
+       title = "Figure 36",
+       caption = "Scatterplot of PCA3 and PCA4 by Country.") +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5, size = 50),
+        plot.caption = element_text(hjust = 0.5, size = 28))
+
+```
+
+The 1st and 4th principal components are largely dissimilar, where the respective loadings are situated either in a horizontal or vertical direction. This means that the correlations of each variable are either small or large in either principal component. Also, as the 1st principal component already has been analyzed in previous figures, the main focus in the figure above is on the 4th principal component.
+
+Because of the extremely negative position of the United States, the figure had to made very large in the vertical direction to reduce clutter and create more labels for the data points. Also, the correlations in the figure above are seemingly more sensitive to pull effects of extreme data points. As a first remark, China and the United States are in the direction of nominal GDP, which fully coincides with the two countries being the two largest economies in the world. In this figure more, more so than in the previous figures, the variable of nominal GDP is more important as other countries with very large economies, such as Germany, France, Japan and the United Kingdom are all located in the direction of nominal GDP with a large correlation as its respective loading is clearly the largest in the fourth principal component. Some poorer countries with small populations, such as Cambodia and Mongolia are in the opposite direction, which indicates that countries with small total nominal economies have the highest levels of GDP growth. As will be further analyzed in the discussion below, China is a clear outlier with a seemingly, but not statistically incorrect paradoxical position. It is situated in the extreme opposite direction of the correlation of GDP growth, which is a measurement where China until 2019 had a high economic growth rate.
+
+```{r Part 4k Results, echo = FALSE, results = 'hide', fig.height = 15, fig.width = 15}
+
+" Plot PCA2 and PCA3 by political system "
+autoplot(PCA1, x=2, y=3, data = GLOBAL, colour  = 'PoliticalSystem', size = 4L, loadings = TRUE, 
+         loadings.colour = 'blue', loadings.label = TRUE, 
+         loadings.label.size = 6L) +
+  theme_light() + 
+  scale_colour_discrete("PoliticalSystem") + 
+  geom_text_repel(label = GLOBAL$Country, max.overlaps = 6, size = 6L) +
+  labs(x = "Principal component 2",
+       y = "Principal component 3",
+       title = "Figure 37",
+       caption = "Scatterplot of PCA2 and PCA3 by Country.") +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5, size = 50),
+        plot.caption = element_text(hjust = 0.5, size = 28))
+
+```
+
+As the 2nd and 3rd principal components already have been visualized above versus the 1st principal component, the only relevant similarities between figure 37 above versus figure 34 and 35 is as following. The democracy index Polity IV is clearly in the direction of democracies with a blue color and relatively clearly in the opposite direction of autocracies with a red color. This relationship is the clearest in the plot above with the 2nd and 3rd principal component, while comparing it to the previous plots. Unemployment is also directed towards anocracies in this figure, which is consistent with the previously mentioned figures. GDP Growth is relatively opposite to unemployment, which gives a logical remark that growth tigers have small issues with unemployment.
+
+# Part 4 Discussion
+
+As in the assignment with PCA prior to this project, the loss of the cumulative proportion of variance that exceeds the 4th principal component needs to be mentioned. As 71.7% the cumulative proportion of variance is explained by the fourth principal component, this PCA has a bias of 28.3% of the proportion of variance, which is the remainder of the variance explained by the 5th to th 11th principal component. In this PCA, the rule of thumb of not including principal components with an eigenvalue lower than 1 due to a loss of steepness is perfectly equivalent to not using principal components that do not exceed the mean, as both give an eigenvalue of 1. Though, the choice of the cut-off point is somewhat arbitrary and on this issue there is no apparent consensus in the statistical community, which means that one could argue that the 5th and possibly also the 6th principals could have been included, but this would have made this part of the project too extensive. Also, principal components with low eigenvalues can arguably possess correlations in variables that are strongly effected by deviating outliers in extreme data points. The inclusion of a larger number of principal components could therefore reduce the quality of the visualized analysis. 
+
+As orthogonality is a necessary condition in the computation of the principal components, then some loadings within a principal component have to be large in absolute value, while other correlations need to be small in absolute value. Though, if the asbolute values of correlations regarding the very same variables are small in certain principal components, and consistently large in others, then it indicates that a group of data points have similar and somewhat deviating values in important variables. For example, the four factors of a high standard of living, politically stability, democracy and an elderly population are either located in the direction of strong correlations towards in these four factors in the 1st and 3rd principal components, or consistently have weak correlations in the 2nd and 4th principal components. 
+
+Though, China is an outlier in Nominal GDP, but is not situated in the same location as countries that are similar in political indices. China deviates by an extreme length in Nominal GDP to the extent where it is in the opposite direction of high GDP growth in the visualized 4th principal component in figure 4. This visualized absurdity might also serve as an indicator as to why less important principal components are lacking in statistical validity, as their low proportions of variance can create correlations where statistical outliers for certain data points pull a correlation to the point where another variable is less important. This can be explained as Nominal GDP has outliers with many standard deviations above the median, which is not the case for GDP growth and therefore, the data point for China in figure 36 can be wrongfully assessed to have a low rate of economic development.
+
+I have deliberately chosen not to include population as an input variable, as it would create an extreme pull effect towards highly populous countries and it would alter the loadings of other variables with fewer outliers and make some of them relatively inconclusive. The main issue with the data set in PCA is that if the units of measurements are different, where some variables are in counts and other variables are in percentage points, some correlations in indices and percentage point based variables can be weak due to a lack of variance and connections towards certain groups of data points can be lost as a consequence. A smaller but yet relevant weakness in the data set while applying PCA is created by including per capita GDP and Nominal GDP, as these are not indices nor percentage based variables and have huge variances within the data of these respective variables. This creates a pull effect towards these variables that can diminish the importance of the remainder of the included numeric variables, which is an example of the risk in making other variables relatively inconclusive. 
+
+Also, as there are issues with having prior knowledge about countries, the observances can also be post-hoc in this part of the project. If the data set is based on variables that are unknown to the user, the observances from the figures can be made in a more objective manner, but with the downside of having less depth and instead making a more technical analysis. The following statement is the final point of this discussion. As remarks on which variables that are correlated in the direction of certain country based data points already have been made in the results, I have instead prioritized discussing differences between the factors through analyzing by analyzing the implications and strengths of principal component analysis while using the extracted data set. 
+
+# References
+
+Abdi, H & Williams, J. (2010). Principal Component Analysis. Interdisciplinary Reviews, Computation Statistics, volume 2, Issue 4, pp. 433-459. doi: 10.1002/wics.101
+
+Center for Systemic Peace. (2018). Polity5 Annual Time-Series, 1946-2018. https://www.systemicpeace.org/inscrdata.html [2021-07-20].
+
+Center for Systemic Peace. (2020). PITF State Failure Problem Set, 1955-2018. http://www.systemicpeace.org/inscrdata.html [2021-04-01].
+
+Center for Systemic Peace. (2021). Coup D'etat Events, 1946-2021.  https://www.systemicpeace.org/inscrdata.html [2022-10-19]
+
+Hilbe, M.J. (2013). Can binary logistic models be overdispersed?. http://highstat.com/Books/BGS/GLMGLMM/pdfs/HILBE-Can_binary_logistic_models_be_overdispersed2Jul2013.pdf
+
+Mans Thulin (2021). Modern Statistics with R. From wrangling and exploring data to inference and predictive modelling. http://www.modernstatisticswithr.com/
+
+United Nations. (2022). World Population Prospects 2022. https://population.un.org/wpp/Download/Standard/MostUsed/ [2022-10-23]
+
+The International Monetary Fund. (2020). GDP per capita, current prices. https://www.imf.org/external/datamapper/PPPPC@WEO/THA [2021-07-17].
+
+The World Bank. (2019). World Bank national accounts data, and OECD National Accounts data files. https://data.worldbank.org/indicator/NY.GDP.PCAP.KD.ZG [2021-07-19].
+
+The World Bank. (2020a). Intentional homicides (per 100,000 people). https://data.worldbank.org/indicator/VC.IHR.PSRC.P5 [2022-10-23]
+
+The World Bank (2020b). Total natural resources rents (% of GDP). https://data.worldbank.org/indicator/NY.GDP.TOTL.RT.ZS [2020-11-14]
+
+The World Bank. (2021a). GDP (current US$). https://data.worldbank.org/indicator/NY.GDP.MKTP.CD?most_recent_value_desc=true
+[2022-10-25]
+
+The World Bank. (2021b). Labour force, total. https://data.worldbank.org/indicator/SL.TLF.TOTL.IN?most_recent_value_desc=true [2022-10-25]
+
+The World Bank. (2021c). Population, total.
+https://data.worldbank.org/indicator/SP.POP.TOTL [2022-10-23]
+
+The World Bank. (2021d). Unemployment, total (% of total labor force) (modeled ILO estimate). https://data.worldbank.org/indicator/SL.UEM.TOTL.ZS [2022-10-23]
+
+The World Bank. (2021e). World Development Indicators: Structure of value added. http://wdi.worldbank.org/table/4.2 [2022-10-25]
+
+Transparency International. (2019). Corruption Perceptions Index. https://www.transparency.org/en/cpi/2019/index/press-and-downloads [2021-03-09].
+
+World Inequality Database. (2019). WID Metadata. 
+https://wid.world/data/ [2021-03-06].
+
+# Appendix
+
+# Appendix Part 1
+
+```{r Part 1a Methods Appendix, echo = TRUE, fig.show = 'hide', results = 'hide'}
+
+# Variables by description.
+DESCRQ <- data.frame(Variable_Name = c("HOMIC","II","WA","UR","POP"),
+                    
+                    Measuring = c("Intentional Homicide Count",
+                                  "Income Inequality (Income % share of top 10%)",
+                                  "Working age % share",
+                                  "Unemployment rate %",
+                                  "Population (millions)"))
+DESCRQ %>%
+  kable(caption = "Variables by description. Table 1.", format = "html")
+
+```
+
+```{r Part 1b Methods Appendix, echo = TRUE, fig.show = 'hide', results = 'hide'}
+
+# Save the data frames from imported excel files.
+MR <-  read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 1/DataWranglingPart1/MR Original.xlsx")
+OD2020 <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 1/DataWranglingPart1/Original Data 2020.xlsx")
+# Removing doubles.
+MR <- unique(MR)
+OD2020 <- unique(OD2020)
+# Renaming WAIPO to WA.
+OD2020$WA <- OD2020$WAIPO
+# Extracting POP.
+POP <- 
+  OD2020 %>%
+  select(2,11)
+# Merge MR and POP.
+HOMIC <- merge(MR, POP, by = c("CC"), all=T)
+HOMIC <- na.omit(HOMIC)
+# Transform homicides into actual rounded counts.
+HOMIC <-
+  HOMIC %>%
+  mutate(HOMIC = round(MR/100000*POP*1000000))
+# Removing POP and MR.
+HOMIC <-
+  HOMIC %>%
+  select(-2,-3)
+# Merging the data sets.
+MAINHOMIC <- merge(HOMIC, OD2020, by = c("CC"), all=T)
+# Transforming Income Inequality into percentage points.
+MAINHOMIC <-
+  MAINHOMIC %>%
+  mutate(II = II*100)
+
+```
+
+```{r Part 1c Results Appendix, echo = TRUE, fig.width = 16, fig.height = 16, fig.show = 'hide', results = 'hide'}
+
+p1 <-
+  MAINHOMIC %>%
+  ggplot(aes(x=II,y=HOMIC,label=CN)) +
+  geom_point(color="blue",size=3) +
+  geom_text_repel(max.overlaps=1,size=6) +
+  geom_smooth(method = "glm", method.args = list(family = "gaussian"),
+              color = "black") +
+  labs(x = "Income Inequality Index",
+       y = "Homocides",
+       title = "Figure 1",
+       caption = "Number of homicides by Income Inequality Index") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p2 <-
+  MAINHOMIC %>%
+  ggplot(aes(x=WA,y=HOMIC,label=CN)) +
+  geom_point(color="blue",size=3) +
+  geom_text_repel(max.overlaps=1,size=6) +
+  geom_smooth(method = "glm", method.args = list(family = "gaussian"),
+              color = "black") +
+  labs(x = "Working Age Population",
+       y = "Homocides",
+       title = "Figure 2",
+       caption = "Number of homicides by Working Age Population") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p3 <-
+  MAINHOMIC %>%
+  ggplot(aes(x=UR,y=HOMIC,label=CN)) +
+  geom_point(color="blue",size=3) +
+  geom_text_repel(max.overlaps=1,size=6) +
+  geom_smooth(method = "glm", method.args = list(family = "gaussian"),
+              color = "black") +
+  labs(x = "Unemployment rate %",
+       y = "Homocides",
+       title = "Figure 3",
+       caption = "Number of homicides by Working Age Population") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p4 <-
+  MAINHOMIC %>%
+  ggplot(aes(x=POP,y=HOMIC,label=CN)) +
+  geom_point(color="blue",size=3) +
+  geom_text_repel(max.overlaps=1,size=6) +
+  geom_smooth(method = "glm", method.args = list(family = "gaussian"),
+              color = "black") +
+  labs(x = "Population (millions)",
+       y = "Homocides",
+       title = "Figure 4",
+       caption = "Number of homicides by population (millions)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p1 + p2 + p3 + p4
+
+```
+
+```{r Part 1d Results Appendix, echo = TRUE, fig.width = 5, fig.height = 5, fig.show = 'hide', results = 'hide'}
+
+# Running and saving a Gaussian OLS regression.
+REGGAUS <- glm(HOMIC ~ II + WA + UR + POP, 
+               family=gaussian, data = MAINHOMIC)
+# Creating a QQ plot.
+par(mfrow=c(1,1))
+plot(REGGAUS,sub =c("Diagnostic plot for distribution of residuals by quantile"), 
+     main = "Figure 5", which = 2, cex.sub = 1, cex.main = 1.2)
+
+```
+
+```{r Part 1f Results Appendix, echo = TRUE, fig.show = 'hide', results = 'hide'}
+
+# Poisson regression results.
+REGPOI <- glm(HOMIC ~ II + WA + UR + POP, family=poisson(link=log), data = MAINHOMIC)
+# Extracting the ration between residual deviance and degrees of freedom.
+dispQ <- as.data.frame(as.data.frame(REGPOI[10])/as.data.frame(REGPOI[16]))
+dispQ$Deviance <- dispQ$deviance
+dispQ <-
+  dispQ %>%
+  select(-1)
+dispQ$DF <- 143
+dispQ$ResidualDeviance <- 803900
+dispQ %>%
+  flextable() %>%
+  set_caption("Results. Measure of Dispersion. Table 2.")
+
+```
+
+```{r Part 1g Results Appendix, echo = TRUE, fig.show = 'hide', results = 'hide'}
+
+# Compute a regression with a quasi-Poisson method (GLM).
+REGPOIQ1 <- glm(HOMIC ~ II + POP + WA + UR,
+                family=quasipoisson, data = MAINHOMIC)
+REGPOIQ2 <- glm(HOMIC ~ POP + WA + UR,
+                family=quasipoisson, data = MAINHOMIC)
+REGPOIQ3 <- glm(HOMIC ~ II  + POP,
+                family=quasipoisson, data = MAINHOMIC)
+# Create a proper table for the quasi-Poisson regression.
+REGPOIQLIST <- list()
+REGPOIQLIST[['QPOI (1)']] <- glm(HOMIC ~ II + POP + UR + WA,
+                                 family=quasipoisson, data = MAINHOMIC)
+REGPOIQLIST[['QPOI (2)']] <- glm(HOMIC ~  POP + UR + WA, 
+                                 family=quasipoisson, data = MAINHOMIC)
+REGPOIQLIST[['QPOI (3)']] <- glm(HOMIC ~ II + POP,
+                                 family=quasipoisson, data = MAINHOMIC)
+varnames <- c('(Intercept)' = 'Constant')
+vifglm <- tribble(~term,          ~'QPOI (1)', ~ 'QPOI (2)', ~ 'QPOI (3)',
+                  'Average VIF',sum(vif(REGPOIQ1))/length(vif(REGPOIQ1)),
+                  sum(vif(REGPOIQ2))/length(vif(REGPOIQ2)),
+                  sum(vif(REGPOIQ3))/length(vif(REGPOIQ3)))
+tablepoisson <- modelsummary(REGPOIQLIST, output = 'kableExtra',
+                             coef_rename = varnames, stars = TRUE, 
+                             gof_omit = 'IC|Log|Adj', add_rows = vifglm)
+tablepoisson %>%
+  add_header_above(c("Dependent variable: Intentional Homicides", " " , " ", " "), 
+                   font_size = 14, align = "l") %>%
+  add_header_above(c("Results. Quasi-Poisson Regression. Table 3. ", " ", " ", " "), 
+                   font_size = 20, align = "l")
+
+```
+
+```{r Part 1h Results Appendix, echo = TRUE, fig.show = 'hide', results = 'hide'}
+
+# Converting the estimates into a data frame and renaming the column.
+explndfq1 <- as.data.frame(exp(coefficients(REGPOIQ1)))
+explndfq2 <- as.data.frame(exp(coefficients(REGPOIQ2)))
+explndfq3 <- as.data.frame(exp(coefficients(REGPOIQ3)))
+# Renaming columns.
+explndfq1$'QPOI (1)' <- explndfq1$`exp(coefficients(REGPOIQ1))`
+explndfq2$'QPOI (2)' <- explndfq2$`exp(coefficients(REGPOIQ2))`
+explndfq3$'QPOI (3)' <- explndfq3$`exp(coefficients(REGPOIQ3))`
+explndfq1 <-
+  explndfq1 %>%
+  select(-1)
+explndfq2 <-
+  explndfq2 %>%
+  select(-1)
+explndfq3 <-
+  explndfq3 %>%
+  select(-1)
+# Making the first column into a transformable column.
+explndfq1 <- rownames_to_column(explndfq1)
+explndfq2 <- rownames_to_column(explndfq2)
+explndfq3 <- rownames_to_column(explndfq3)
+# Merging the data frames.
+explndfq12 <- merge(explndfq1, explndfq2, by = "rowname", all=T)
+explndfq123 <-merge(explndfq12, explndfq3, by = "rowname", all=T)
+# Changing column names.
+colnames(explndfq123) <- c('Variable','QPOI (1)','QPOI (2)','QPOI (3)')
+# Renaming (Intercept) into "Constant".
+explndfq123 <- rownames_to_column(explndfq123, " ")
+explndfq123[1,1] <- "Constant"
+# Generating table displaying the exponential values of the estimates.
+explndfq123 %>%
+  flextable() %>%
+  set_caption("Results. Exponentials of estimates. Table 4.")
+
+
+```
+
+```{r Part 1e Results Appendix, echo = TRUE}
+# Breusch Pagan test.
+as.data.frame(bptest(REGGAUS)[]) %>%
+  flextable() %>%
+  set_caption("Results. Breusch-Pagan Test. Table 5.")
+
+```
+
+```{r Part 1i Results Appendix, echo = TRUE}
+
+# Select variables for the descriptive Table
+MAINHOMIC2 <-
+  MAINHOMIC %>%
+  select(HOMIC,II,WA,UR,POP)
+# Generate the descriptive table with 2 digits.
+sumtable(MAINHOMIC2,digits = 2,
+         title = 'Results. Descriptive statistics. Table 6.',
+         summ=c('mean(x)',
+                'median(x)',
+                'sd(x)',
+                'min(x)',
+                'max(x)',
+                'notNA(x)',
+                'propNA(x)'))
+
+```
+
+```{r Part 1j Results Appendix, echo = TRUE, fig.show = 'hide', results = 'hide'}
+
+# Anova comparison test 1.
+QP1 <- as_tibble(drop1(REGPOIQ1, test = "F"))
+QP1 <- rownames_to_column(QP1)
+QP1$rowname[QP1$rowname == 1] <- ""
+QP1$rowname[QP1$rowname == 2] <- "II"
+QP1$rowname[QP1$rowname == 3] <- "POP"
+QP1$rowname[QP1$rowname == 4] <- "WA"
+QP1$rowname[QP1$rowname == 5] <- "UR"
+QP1 %>%
+  flextable() %>%
+  set_caption("Results. Anova comparison test for QPOI (1). Table 7a.") %>%
+  colformat_double(big.mark=",", digits = 3, na_str = "")
+
+
+```
+
+```{r Part 1k Results Appendix, echo = TRUE}
+
+# Anova comparison test 2.
+QP2 <- as_tibble(drop1(REGPOIQ2, test = "F"))
+QP2 <- rownames_to_column(QP2)
+QP2$rowname[QP2$rowname == 1] <- ""
+QP2$rowname[QP2$rowname == 2] <- "POP"
+QP2$rowname[QP2$rowname == 3] <- "WA"
+QP2$rowname[QP2$rowname == 4] <- "UR"
+QP2 %>%
+  flextable() %>%
+  set_caption("Results. Anova comparison test for QPOI (2). Table 7b.") %>%
+  colformat_double(big.mark=",", digits = 3, na_str = "")
+# Anova comparison test 3.
+QP3 <- as_tibble(drop1(REGPOIQ3, test = "F"))
+QP3 <- rownames_to_column(QP3)
+QP3$rowname[QP3$rowname == 1] <- ""
+QP3$rowname[QP3$rowname == 2] <- "II"
+QP3$rowname[QP3$rowname == 3] <- "POP"
+QP3 %>%
+  flextable() %>%
+  set_caption("Results. Anova comparison test for QPOI (3). Table 7c.") %>%
+  colformat_double(big.mark=",", digits = 3, na_str = "")
+
+
+
+```
+
+```{r Part 1l Results Appendix, echo = TRUE, fig.width = 6, fig.height = 6, fig.show = 'hide', results = 'hide'}
+
+# Effects plots of fitted values by each independent variable. "
+plot(effect("II", REGPOIQ1),rescale.axis=F,
+     main="Figure 6",sub="Effects plot of Fitted Homicides by Income Inequality",
+     xlab = "Income Inequality", ylab = "Fitted homicides")
+plot(effect("POP", REGPOIQ1),rescale.axis=F,
+     main="Figure 7",sub="Effects plot of Fitted Homicides by Population",
+     xlab = "Population", ylab = "Fitted Homicides")
+plot( effect("WA", REGPOIQ1),rescale.axis=F,
+     main="Figure 8",sub="Effects plot of Fitted Homicides by Working Age",
+     xlab = "Working Age", ylab = "Fitted Homicides")
+plot(effect("UR", REGPOIQ1),rescale.axis=F,
+     main="Figure 9",sub="Effects plot of Fitted Homicides by Unemployment Rate",
+     xlab = "Unemployment Rate", ylab = "Fitted Homicides")
+
+
+```
+
+# Appendix Part 2
+
+```{r Part 2a Methods Descriptive Table Appendix, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# Variables by description.
+DESCR <- data.frame(Variable_Name = c("COUP","NRRGR1","NRRGR2","Y","P4"),
+                    
+                    Measuring = c("Binary variable for coup d'etat",
+                                  "Growth in natural resources rents as % point of GDP 1",
+                                  "Growth in natural resources rents as % point of GDP 2",
+                                  "The year of each observation",
+                                  "Polity IV Democracy Index"))
+DESCR %>%
+  kable(caption = "Variables by description. Table 8.", format = "html")
+
+```
+
+```{r Part 2b Methods Appendix, echo = TRUE}
+
+# Creating the data frames from imported excel files. "
+P4 <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 2/DataWranglingPart2/P4.xlsx")
+NRR <-  read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 2/DataWranglingPart2/NRR.xlsx")
+COUP <-  read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 2/DataWranglingPart2/COUP.xlsx")
+CC_Region <-  read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/CC_Region.xlsx")
+
+# Only keeping unique rows to avoid the inclusion of doubles in the final data 
+# frame.
+NRR <- unique(NRR)
+COUP <- unique(COUP)
+CC_Region <- unique(CC_Region)
+
+# The observations in COUP with values from 2 to 5 are transformed to a value of 1.
+COUP$COUP[COUP$COUP == 2] <- 1
+COUP$COUP[COUP$COUP == 3] <- 1
+COUP$COUP[COUP$COUP == 4] <- 1
+COUP$COUP[COUP$COUP == 5] <- 1
+
+# Merging the data frames from the imported variables into one data frame. "
+# Merge COUP and Natural Resources rents as a share of GDP. 
+MAIN <- merge(COUP, NRR, by = c("CC","Y"), all = T)
+# Merge previous data frame and a category for region.
+MAIN <- merge(MAIN, CC_Region, by = c("CC"), all = T)
+# Merge previous data frame and a variable for P4 democracy index.
+MAIN <- merge(MAIN, P4, by = c("CC","Y"), all = T)
+
+# Transformations in the main independent variable are performed with three lags, and three growth variables with one, two and three years prior to contemporary natural resources rents as a share of GDP.
+MAIN <-
+  MAIN %>%
+  mutate(NRRLAG1 = lag(NRR, n = 1)) %>%
+  mutate(NRRLAG2 = lag(NRR, n = 2)) %>%
+  mutate(NRRGR1 = (NRR - NRRLAG1)) %>%
+  mutate(NRRGR2 = (NRR - NRRLAG2))
+
+# Omitting missing observations and rows that are doubles.
+MAIN <- na.omit(MAIN)
+MAIN <- unique(MAIN)
+
+# Transforming the binary dependent variable COUP (Coup D'etat) into a binomial factor variable. "
+MAIN$COUP <- as.factor(MAIN$COUP)
+
+```
+
+```{r Part 2c Results Appendix, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# Compute a regression with a binomial logistic Generalized Linear Model (GLM).
+glmbinreg <- glm(COUP ~ NRRGR1 +  NRRGR2 + P4 + Y, family = binomial, data = MAIN)
+# Create a proper table for the GLM regression.
+glmbinreg2 <- list()
+glmbinreg2[['LG (1)']] <- glm(COUP ~ NRRGR1 + NRRGR2 + Y + P4, binomial, 
+                              data = MAIN)
+varnames <- c('(Intercept)' = 'Constant')
+vifglm <- tribble(~term,          ~"GLM LG (1)",
+                 'Average VIF',sum(vif(glmbinreg))/length(vif(glmbinreg)))
+tableglm <- modelsummary(glmbinreg2, output = 'kableExtra',
+                           coef_rename = varnames, stars = TRUE, 
+                           gof_omit = 'IC|Log|Adj', add_rows = vifglm)
+tableglm %>%
+  add_header_above(c("Dependent variable: Coup D'etat", " "), 
+                   font_size = 14, align = "l") %>%
+  add_header_above(c("Results. Logistic Regression. Table 9a. ", " "), 
+                   font_size = 20, align = "l")
+
+```
+
+```{r Part 2cb Results Appendix, echo = TRUE}
+
+# Generate the descriptive table with 2 digits.
+library(vtable)
+MAIN2<-
+  MAIN %>%
+  select(COUP,NRRGR1,NRRGR2,P4,Y)
+MAIN2$COUP <- as.numeric(MAIN2$COUP)
+sumtable(MAIN2,digits = 2,
+         title = 'Results. Descriptive statistics. Table 9b',
+         summ=c('mean(x)',
+                'median(x)',
+                'sd(x)',
+                'min(x)',
+                'max(x)',
+                'notNA(x)',
+                'propNA(x)'))
+```
+
+```{r Part 2e Results Exp of Coefficients Appendix, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+explndf <- as.data.frame(exp(coefficients(glmbinreg)))
+explndf$ExpEstimates <- explndf$`exp(coefficients(glmbinreg))`
+explndf <-
+  explndf %>%
+  select(-1)
+explndf$ExpEstimates[1:5] <- format(explndf$ExpEstimates[1:5], digits = 3)
+explndf[2,] <- 0.986
+explndf[3,] <- 1.02
+explndf[4,] <- 0.97
+explndf[5,] <- 0.923
+explndf <- rownames_to_column(explndf, " ")
+explndf[1,1] <- "Constant"
+explndf %>%
+  flextable() %>%
+  set_caption("Results. Exponentials of estimates. Table 10.")
+
+```
+
+```{r Part 2d Results Tests Appendix, echo = TRUE}
+
+# Extracting the ration between residual deviance and degrees of freedom.
+disp <- as.data.frame(as.data.frame(glmbinreg[10])/as.data.frame(glmbinreg[16]))
+disp$Deviance <- disp$deviance
+disp <-
+  disp %>%
+  select(-1)
+disp %>%
+  flextable() %>%
+  set_caption("Results. Measure of Dispersion. Table 11.")
+# Durbin-Watson test for check for autocorrelation.
+as.data.frame(durbinWatsonTest(glmbinreg)[]) %>%
+  flextable() %>%
+  set_caption("Results. Durbin-Watson Test. Table 12.")
+# Testing the Variance Inflation Factors.
+vifval <- as.data.frame(vif(glmbinreg))
+vifval$AverageVif <- vifval$`vif(glmbinreg)`
+vifval <- 
+  vifval %>%
+  select(-1)
+rownames_to_column(vifval, " ") %>%
+  flextable() %>%
+  set_caption("Results. Variance Inflation Factor by Variable. Table 13.")
+
+```
+
+
+```{r Part 2fa Results GLM Smooth No ylim Appendix, echo = TRUE, fig.width = 16, fig.height = 16}
+
+p1 <-
+  MAINPLOT %>%
+  ggplot(aes(x = NRRGR1,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"),
+              color = "black", se = F) +
+  labs(x = "Natural Resources Growth Rate 1",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 10",
+       caption = "Probability of Coup D'etat by NRR Growth Rate 1") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+p2 <-
+  MAINPLOT %>%
+  ggplot(aes(x = NRRGR2,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"),
+              color = "black", se = F) +
+  labs(x = "Natural Resources Growth Rate 2",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 11",
+       caption = "Probability of Coup D'etat by NRR Growth Rate 2") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 25),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+p3 <-
+  MAINPLOT %>%
+  ggplot(aes(x = Y,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"),
+              color = "black", se = F) +
+  labs(x = "Year",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 12",
+       caption = "Probability of Coup D'etat by Year") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 25),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+p4 <-
+  MAINPLOT %>%
+  ggplot(aes(x = P4,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"),
+              color = "black", se = F) +
+  labs(x = "Polity IV Democracy Index",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 13",
+       caption = "Probability of Coup D'etat by Polity IV Democracy Index") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 25),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p1 + p2 + p3 + p4
+
+
+```
+
+```{r Part 2g Results GAM Smooth Appendix, echo = TRUE, fig.show = 'hide', results = 'hide', fig.width = 16, fig.height = 16}
+
+# Copying the data frame, transforming the dependent variable into numeric. As the transformation added a value of 1 to every observation, every value needs to be subtracted by 1 for the purpose of creating plots.
+MAINPLOT <- MAIN
+MAINPLOT$COUP <- as.numeric(MAINPLOT$COUP)
+MAINPLOT <-
+  MAINPLOT %>%
+  mutate(COUP = COUP - 1)
+
+# Creating and saving the regression plots with a GAM smooth fit.
+p5 <-
+  MAINPLOT %>%
+  ggplot(aes(x = NRRGR1,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Natural Resources Growth Rate 1",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 14",
+       caption = "Probability of Coup D'etat by NRR Growth Rate 1") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+p6 <-
+  MAINPLOT %>%
+  ggplot(aes(x = NRRGR2,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Natural Resources Growth Rate 2",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 15",
+       caption = "Probability of Coup D'etat by NRR Growth Rate 2") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p7 <-
+  MAINPLOT %>%
+  ggplot(aes(x = Y,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Year",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 16",
+       caption = "Probability of Coup D'etat by Year") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 25),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+p8 <-
+  MAINPLOT %>%
+  ggplot(aes(x = P4,y = COUP)) +
+  geom_point(color = "blue") +
+  geom_smooth(color = "black", se = F) +
+  coord_cartesian(ylim = c(0,0.2)) +
+  labs(x = "Polity IV Democracy Index",
+       y = "Coup D'Etat (Probability)",
+       title = "Figure 17",
+       caption = "Probability of Coup D'etat by Polity IV Democracy Index") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 25),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+
+p5 + p6 + p7 + p8
+```
+
+# Appendix Part 3
+
+```{r Part 3a Methods Descriptive Table of Variables Appendix, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# Variables by description.
+DESCRQMEREG <- data.frame(Variable_Name = c("GDPBySector","Sector","LabourForce",
+                                            "Region","Country"),
+                     Measuring = c("Nominal GDP by Sector",
+                                   "Economic Sector",
+                                   "Labour Force",
+                                   "Global region",
+                                   "Country"))
+DESCRQMEREG %>%
+  kable(caption = "Variables by description. Table 14.", format = "html")
+
+```
+
+```{r Part 3b Methods Importing Data Sets and Wrangling Appendix, echo = TRUE, results = 'hide', fig.show = 'hide', fig.width = 10, fig.height = 6}
+
+# Reading the data sets from Excel.
+# TradeShare <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/TradeGDP.xlsx")
+# II <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/IncomeInequality.xlsx")
+CC_CN <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/CC_CN.xlsx")
+CC_Region <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/CC_Region.xlsx")
+SectorGDP <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/SectorGDP.xlsx")
+GDP <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/GDP.xlsx")
+LabourForce <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/LabourForce.xlsx")
+
+# Merge the data sets.
+# GLOBALME <- merge(GLOBALME, TradeShare, by="CC", all=T)
+GLOBALME <- merge(SectorGDP, CC_CN, by="CN", all=T)
+GLOBALME <- merge(GLOBALME, CC_Region, by="CC", all=T)
+GLOBALME <- merge(GLOBALME, GDP, by="CC", all=T)
+GLOBALME <- merge(GLOBALME, LabourForce, by="CC", all=T)
+
+# Omit duplicate rows.
+GLOBALME <- unique(GLOBALME)
+# Omit rows with missing observations.
+GLOBALME <- na.omit(GLOBALME)
+
+# Create tidy data.
+GLOBALME <-
+  GLOBALME %>%
+  pivot_longer(c("Agriculture", "Industry", "Manufacturing", "Services"),
+               names_to = "Sector", values_to = "GDPShare")
+
+# Multiply GDP by GDP % Share to GDP sector figures in USD.
+GLOBALME <-
+  GLOBALME %>%
+  mutate(GDPBySector = 0.01*GDP*GDPShare)
+
+# Renaming specific variables to more comprehensible names.
+GLOBALME <-
+  GLOBALME %>%
+  rename(CountryCode = CC) %>%
+  rename(Country = CN)
+
+# Renaming regional categories.
+GLOBALME$Region[GLOBALME$Region == "SSA"] <- "Sub-Saharan Africa"
+GLOBALME$Region[GLOBALME$Region == "FCEEUSSR" ] <- "Former Communist"
+GLOBALME$Region[GLOBALME$Region == "MENA"] <- "Middle East and North Africa"
+GLOBALME$Region[GLOBALME$Region == "SA"] <- "South Asia"
+GLOBALME$Region[GLOBALME$Region == "SACAR"] <- "South America"
+GLOBALME$Region[GLOBALME$Region == "WEST"] <- "Western World"
+GLOBALME$Region[GLOBALME$Region == "EAOA"] <- "East Asia"
+
+# Changing the classes of the variables into factors for the categorical 
+# variables and numeric for the numeric variables.
+GLOBALME$CountryCode <- as.factor(GLOBALME$CountryCode)
+GLOBALME$Country <- as.factor(GLOBALME$Country)
+GLOBALME$Region <- as.factor(GLOBALME$Region)
+GLOBALME$Sector <- as.factor(GLOBALME$Sector)
+GLOBALME$GDPShare <- as.numeric(GLOBALME$GDPShare)
+GLOBALME$GDP <- as.numeric(GLOBALME$GDP)
+GLOBALME$LabourForce <- as.numeric(GLOBALME$LabourForce)
+
+# Logarithmizing to reduce heteroscedasticity.
+GLOBALME <-
+  GLOBALME %>%
+  mutate(LnGDPBySector = log(GDPBySector)) %>%
+  mutate(LnLabourForce = log(LabourForce))
+
+```
+
+```{r Part 3c Methods Data Imports And Wrangling Appendix, echo = TRUE, results = 'hide', fig.show = 'hide', fig.width = 10, fig.height = 6}
+
+# Setting working directory for Part 6, the project.
+setwd("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3")
+
+# Reading the data sets from Excel.
+# TradeShare <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/TradeGDP.xlsx")
+# II <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/IncomeInequality.xlsx")
+CC_CN <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/CC_CN.xlsx")
+CC_Region <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/CC_Region.xlsx")
+SectorGDP <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/SectorGDP.xlsx")
+GDP <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/GDP.xlsx")
+LabourForce <- read_excel("C:/Users/olle_/OneDrive/Skrivbord/Statistical analyses and visualization in R II/Part 6/Project part 3/DataWranglingPart3/LabourForce.xlsx")
+
+# Merge the data sets.
+# GLOBALME <- merge(GLOBALME, TradeShare, by="CC", all=T)
+GLOBALME <- merge(SectorGDP, CC_CN, by="CN", all=T)
+GLOBALME <- merge(GLOBALME, CC_Region, by="CC", all=T)
+GLOBALME <- merge(GLOBALME, GDP, by="CC", all=T)
+GLOBALME <- merge(GLOBALME, LabourForce, by="CC", all=T)
+
+# Omit duplicate rows.
+GLOBALME <- unique(GLOBALME)
+# Omit rows with missing observations.
+GLOBALME <- na.omit(GLOBALME)
+
+# Create tidy data.
+GLOBALME <-
+  GLOBALME %>%
+  pivot_longer(c("Agriculture", "Industry", "Manufacturing", "Services"),
+               names_to = "Sector", values_to = "GDPShare")
+
+# Multiply GDP by GDP % Share to GDP sector figures in USD.
+GLOBALME <-
+  GLOBALME %>%
+  mutate(GDPBySector = 0.01*GDP*GDPShare)
+
+# Renaming specific variables to more comprehensible names.
+GLOBALME <-
+  GLOBALME %>%
+  rename(CountryCode = CC) %>%
+  rename(Country = CN)
+
+# Renaming regional categories.
+GLOBALME$Region[GLOBALME$Region == "SSA"] <- "Sub-Saharan Africa"
+GLOBALME$Region[GLOBALME$Region == "FCEEUSSR" ] <- "Former Communist"
+GLOBALME$Region[GLOBALME$Region == "MENA"] <- "Middle East and North Africa"
+GLOBALME$Region[GLOBALME$Region == "SA"] <- "South Asia"
+GLOBALME$Region[GLOBALME$Region == "SACAR"] <- "South America"
+GLOBALME$Region[GLOBALME$Region == "WEST"] <- "Western World"
+GLOBALME$Region[GLOBALME$Region == "EAOA"] <- "East Asia"
+
+# Changing the classes of the variables into factors for the categorical 
+# variables and numeric for the numeric variables.
+GLOBALME$CountryCode <- as.factor(GLOBALME$CountryCode)
+GLOBALME$Country <- as.factor(GLOBALME$Country)
+GLOBALME$Region <- as.factor(GLOBALME$Region)
+GLOBALME$Sector <- as.factor(GLOBALME$Sector)
+GLOBALME$GDPShare <- as.numeric(GLOBALME$GDPShare)
+GLOBALME$GDP <- as.numeric(GLOBALME$GDP)
+GLOBALME$LabourForce <- as.numeric(GLOBALME$LabourForce)
+
+# Logarithmizing to reduce heteroscedasticity.
+GLOBALME <-
+  GLOBALME %>%
+  mutate(LnGDPBySector = log(GDPBySector)) %>%
+  mutate(LnLabourForce = log(LabourForce))
+```
+
+```{r Part 3d Results Uncorrelated or Correlated Intercepts and Slopes Appendix, echo = TRUE, echo = TRUE, results = 'hide', fig.show = 'hide', fig.width = 16, fig.height = 16}
+
+# Extracting the coefficients from an OLS linear model.
+GLOBALME %>% split(.$Region) %>% 
+  map(~ lm(GDPBySector ~ Sector + LabourForce, data = .)) %>% 
+  map(coef) -> CoefRegion
+GLOBALME %>% split(.$Country) %>% 
+  map(~ lm(GDPBySector ~ Sector + LabourForce, data = .)) %>% 
+  map(coef) -> CoefCountry
+
+# Convert to a data frame:
+CoefRegionDF <- data.frame(matrix(unlist(CoefRegion),
+                                  nrow = length(CoefRegion),
+                                  byrow = TRUE),
+                           row.names = names(CoefRegion))
+names(CoefRegionDF) <- c("Intercept", "SectorIndustry", "SectorManufacturing",
+                         "SectorServices","LabourForce")
+CoefCountryDF <- data.frame(matrix(unlist(CoefCountry),
+                                   nrow = length(CoefCountry),
+                                   byrow = TRUE),
+                            row.names = names(CoefCountry))
+names(CoefCountryDF) <- c("Intercept", "SectorIndustry", "SectorManufacturing",
+                          "SectorServices","LabourForce")
+
+# Plotting intercepts vs estimates.
+# Intercepts vs industrial sector estimates by region.
+f1 <-
+  CoefRegionDF %>%
+  ggplot(aes(Intercept, SectorIndustry), colour = row.names(CoefRegionDF)) +
+  geom_point(color = "black") +
+  geom_smooth(method = "lm", colour = "blue", se = FALSE) +
+  labs(x = "Intercept coefficient",
+       y = "Industrial sector coefficient",
+       title = "Figure 18",
+       caption = "Intercept vs Industrial Sector Coefficients by Region") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+# Intercepts vs industrial sector estimates by country.
+f2 <-
+  CoefCountryDF %>%
+  ggplot(aes(Intercept, SectorIndustry), colour = row.names(CoefCountryDF)) +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", se = FALSE) +
+  labs(x = "Intercept coefficient",
+       y = "Industrial sector coefficient",
+       title = "Figure 19",
+       caption = "Intercept vs Industrial Sector Coefficients by Country") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+# Intercepts vs manufacturing sector estimates by region
+f3 <-
+  CoefRegionDF %>%
+  ggplot(aes(Intercept, SectorManufacturing), colour = row.names(CoefCountryDF)) +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", se = FALSE) +
+  labs(x = "Intercept coefficient",
+       y = "Manufacturing sector coefficient",
+       title = "Figure 20",
+       caption = "Intercept vs Manufacturing Sector Coefficients by Region") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+# Intercepts vs labour force estimates by region
+f4 <-
+  CoefRegionDF %>%
+  ggplot(aes(Intercept, LabourForce), colour = row.names(CoefCountryDF)) +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", se = FALSE) +
+  labs(x = "Intercept coefficient",
+       y = "Labour force coefficient",
+       title = "Figure 21",
+       caption = "Intercept vs Labour Force Coefficients by Region") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+f1 + f2 + f3 + f4
+
+
+```
+
+```{r Part 3e Results Correlation test and coefficient of determination Appendix, echo = TRUE, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# Extracting correlation coefficients by 2 digits.
+v1 <- round(unlist(cor.test(CoefRegionDF$Intercept, 
+                            CoefRegionDF$SectorIndustry)[4]),2)
+v2 <- round(unlist(cor.test(CoefCountryDF$Intercept, 
+                            CoefCountryDF$SectorIndustry)[4]),2)
+v3 <- round(unlist(cor.test(CoefRegionDF$Intercept, 
+                            CoefRegionDF$SectorManufacturing)[4]),2)
+v4 <- round(unlist(cor.test(CoefRegionDF$Intercept, 
+                            CoefRegionDF$LabourForce)[4]),2)
+# Creating table for the correlation coefficients.
+RandomVariable <- c("Region", "Country", "Region", "Region")
+Variables <- c("Intercept Vs SectorIndustry", "Intercept Vs SectorIndustry", 
+               "Intercept Vs SectorManufacturing", "Intercept Vs Labourforce")
+CorrelationCoef <- c(v1, v2, v3, v4)
+CorrDF <- data.frame(RandomVariable, Variables, CorrelationCoef)
+CorrDF %>%
+  flextable() %>%
+  set_caption("Results. Correlation coefficients. Table 15.")
+```
+
+```{r Part 3f Results Coefficients of Determination Appendix, echo = TRUE, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# Coefficients of determination.
+# Extracting the coefficients of determination.
+rsq1 <- round(r.squaredGLMM(lm(Intercept ~ SectorIndustry + LabourForce
+                               , data = CoefRegionDF))[1], digits = 3)
+rsq2 <- round(r.squaredGLMM(lm(Intercept ~ SectorManufacturing + LabourForce, 
+                         data = CoefRegionDF))[1], digits = 3)
+rsq3 <- round(r.squaredGLMM(lm(Intercept ~ SectorServices + LabourForce, 
+                         data = CoefRegionDF))[1], digits = 3)
+
+# Creating table for the coefficients of determination by sector and labour force.
+IndependentVariables <- c("SectorIndustry and LabourForce", 
+                "SectorManufacturing and LabourForce", 
+               "SectorServices and LabourForce")
+RSquared <- c(rsq1, rsq2, rsq3)
+CorrOfDetermDF <- data.frame(IndependentVariables, RSquared)
+CorrOfDetermDF %>%
+  flextable() %>%
+  set_caption("Results. Coefficients of determination. Table 16.") %>%
+  add_header_row(values = c("Dependent variable: Intercept coefficients", ""),
+                 colwidths = c(1,1))
+
+```
+
+```{r Part 3g Results Appendix, echo = TRUE, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# The regression including the random effects.
+MixedEffectsRegression <-lme(LnGDPBySector~Sector+LnLabourForce, data = GLOBALME, 
+                random = ~1|Region/Country, method="REML")
+# The regression excluding the random effects.
+GLSRegression <-gls(LnGDPBySector~Sector+LnLabourForce, data = GLOBALME,
+                method="REML")
+# The Anova test
+ANOVA1 <- as.data.frame(anova(MixedEffectsRegression, GLSRegression))
+ANOVA1 <- rownames_to_column(ANOVA1, "Variable")
+ANOVA1 <-
+  ANOVA1 %>%
+  select(-2)
+ANOVA1$`p-value` <- c("","2.2e-16")
+ANOVA1 %>%
+  flextable() %>%
+  set_caption("Results. Type II Anova test for random intercept and slope. Table 17.")
+
+
+```
+
+```{r Part 3h Results Appendix, fig.width = 10, fig.height = 6, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# Mixed effects regression with a correlated intercept and slope.
+MEREG4NEST1CORR <- lmer(LnGDPBySector ~ Sector + LnLabourForce + 
+                          (1 + LnLabourForce|Region/Country), 
+                        data = GLOBALME)
+# Linear OLS regression.
+LMREG <- lm(LnGDPBySector ~ Sector + LnLabourForce, data = GLOBALME)
+# Saving the mixed effects regression and the OLS regression in a list.
+REGLIST <- list()
+REGLIST[['ME (1)']] <- lmer(LnGDPBySector ~ Sector + LnLabourForce + 
+                              (1 + LnLabourForce|Region/Country), 
+                            data = GLOBALME)
+REGLIST[['LM (2)']] <- lm(LnGDPBySector ~ Sector + LnLabourForce, data = GLOBALME)
+# Renaming intercept to constant.
+INTERCEPTN <- c('(Intercept)' = 'Constant')
+# Extracting the marginal- and conditional coefficients of determination.
+CMRSQR <- tribble(~term,          ~"ME (1)", ~"LM (2)",
+                'Marginal R-squared', r.squaredGLMM(MEREG4NEST1CORR)[1],
+                r.squaredGLMM(LMREG)[1],
+                'Conditional R-squared', r.squaredGLMM(MEREG4NEST1CORR)[2],
+                r.squaredGLMM(LMREG)[2],
+                'Average VIF', sum(vif(MEREG4NEST1CORR))/length(vif(MEREG4NEST1CORR)),
+                sum(vif(LMREG))/length(vif(LMREG)))
+# Creating the mixed effects regression Table
+modelsummary(REGLIST, output = 'kableExtra',
+             coef_rename = INTERCEPTN, stars = TRUE,
+             gof_omit = 'IC|Log|Adj|R2|F', add_rows = CMRSQR) %>%
+  add_header_above(c("Dependent variable: GDP By Sector","",""), 
+                   font_size = 14, align = "l") %>%
+  add_header_above(c("Results. Mixed effects regression. Table 18.","",""),
+                   font_size = 20, align = "l")
+
+```
+
+```{r Part 3o Results Appendix, echo = TRUE, fig.width = 16, fig.height = 16, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# Bayesian Table
+Median <- c(7.5,1.4,0.6,2.2,0.9)
+MAD_SD <- c(0.6,0.1,0.1,0.1,0.0)
+BAYREGDF <- data.frame(Median, MAD_SD)
+rownames(BAYREGDF) <- c('Intercept','SectorIndustry','SectorManufacturing',
+                  'SectorServices','LnLabourForce')
+BAYREGDF <- rownames_to_column(BAYREGDF, "Estimate")
+BAYREGDF %>%
+  flextable() %>%
+  set_caption("Results. Bayesian estimation. Table 19.")
+
+```
+
+```{r Part 3ib Results Diagnostics Appendix, echo = TRUE, fig.width = 16, fig.height = 16, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# Generating fitted values and residuals.
+GLOBALME <-
+  GLOBALME %>%
+  mutate(RESID = resid(MEREG4NEST1CORR)) %>%
+  mutate(FITTED = fitted(MEREG4NEST1CORR))
+# Creating plots of residuals by fitted values.
+P1 <-
+  GLOBALME %>% 
+  filter(Sector == "Agriculture") %>%
+  ggplot(aes(FITTED, RESID)) +
+  geom_point(color = "blue", size = 3) +
+  facet_wrap(~ Sector, nrow = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", size = 0.3) +
+  labs(x = "Fitted Values",
+       y = "Residuals",
+       title = "Figure 22",
+       caption  = "Diagnostics. Residuals by fitted values.") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P2 <-
+  GLOBALME %>% 
+  filter(Sector == "Industry") %>%
+  ggplot(aes(FITTED, RESID)) +
+  geom_point(color = "magenta", size = 3) +
+  facet_wrap(~ Sector, nrow = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", size = 0.3) +
+  labs(x = "Fitted Values",
+       y = "Residuals",
+       title = "Figure 23",
+       caption  = "Diagnostics. Residuals by fitted values.") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P3 <-
+  GLOBALME %>% 
+  filter(Sector == "Manufacturing") %>%
+  ggplot(aes(FITTED, RESID)) +
+  geom_point(color = "black", size = 3) +
+  facet_wrap(~ Sector, nrow = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", size = 0.3) +
+  labs(x = "Fitted Values",
+       y = "Residuals",
+       title = "Figure 24",
+       caption  = "Diagnostics. Residuals by fitted values.") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P4 <-
+  GLOBALME %>% 
+  filter(Sector == "Services") %>%
+  ggplot(aes(FITTED, RESID)) +
+  geom_point(color = "red", size = 3) +
+  facet_wrap(~ Sector, nrow = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", size = 0.3) +
+  labs(x = "Fitted Values",
+       y = "Residuals",
+       title = "Figure 25",
+       caption  = "Diagnostics. Residuals by fitted values.") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P1 + P2 + P3 + P4
+
+```
+
+```{r Part 3j Results Diagnostics Appendix, echo = TRUE, echo = TRUE, results = 'hide', fig.show = 'hide', fig.width = 16, fig.height = 16}
+
+# Generating a residual variable that is divided by each sector based standard
+# deviation.
+GLOBALME <-
+  GLOBALME %>%
+  group_by(Sector) %>%
+  mutate(SDRESID = RESID/sd(RESID))
+## Q-Q plot of residuals.
+P5 <-
+  GLOBALME %>%
+  filter(Sector == "Agriculture") %>%
+  ggplot(aes(sample = SDRESID)) +
+  geom_qq(color = "blue") +
+  geom_qq_line(color = "blue") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 26",
+       caption  = "QQ-plot of the agricultural sector") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P6 <-
+  GLOBALME %>%
+  filter(Sector == "Industry") %>%
+  ggplot(aes(sample = SDRESID)) +
+  geom_qq(color = "magenta") +
+  geom_qq_line(color = "magenta") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 27",
+       caption  = "QQ-plot of the industry sector") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P7 <-
+  GLOBALME %>%
+  filter(Sector == "Manufacturing") %>%
+  ggplot(aes(sample = SDRESID)) +
+  geom_qq(color = "black") +
+  geom_qq_line(color = "black") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 28",
+       caption  = "QQ-plot of the manufacturing sector") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P8 <-
+  GLOBALME %>%
+  filter(Sector == "Services") %>%
+  ggplot(aes(sample = SDRESID)) +
+  geom_qq(color = "red") +
+  geom_qq_line(color = "red") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 29",
+       caption  = "QQ-plot of the service sector") +
+  theme(plot.title = element_text(hjust = 0.5, size = 38),
+        plot.caption = element_text(hjust = 0.5, size = 20),
+        axis.text = element_text(size = 25),
+        text = element_text(size = 25))
+P5+P6+P7+P8
+
+```
+
+```{r Part 3m Results Diagnostics Appendix, echo = TRUE, echo = TRUE, results = 'hide', fig.show = 'hide', fig.width = 10, fig.height = 6}
+
+# QQ-plot of random effects of intercepts and the slope of labour force, respectively.
+T1 <-
+  ranef(MEREG4NEST1CORR)$Country %>%
+  ggplot(aes(sample = `(Intercept)`)) +
+  geom_qq(color = "blue") +
+  geom_qq_line(color = "blue") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 30",
+       caption  = "QQ-plot of the random effects in intercepts") +
+  theme(plot.title = element_text(hjust = 0.5, size = 30),
+        plot.caption = element_text(hjust = 0.5, size = 14),
+        axis.text = element_text(size = 16),
+        text = element_text(size = 20))
+T2 <-
+  ranef(MEREG4NEST1CORR)$Country %>%
+  ggplot(aes(sample = `LnLabourForce`)) +
+  geom_qq(color = "blue") +
+  geom_qq_line(color = "blue") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles",
+       title = "Figure 31",
+       caption  = "QQ-plot of the random effects in slopes. ") +
+  theme(plot.title = element_text(hjust = 0.5, size = 30),
+        plot.caption = element_text(hjust = 0.5, size = 14),
+        axis.text = element_text(size = 16),
+        text = element_text(size = 20))
+T1 + T2
+
+```
+
+
+```{r Part 3k Results Diagnostics Appendix, echo = TRUE, echo = TRUE, results = 'hide', fig.show = 'hide',  fig.width = 8, fig.height = 5}
+
+# Box plot of standardized residuals. 
+GLOBALME %>%
+  ggplot(aes(Sector, SDRESID, color = Sector)) +
+  geom_boxplot() +
+  coord_flip() +
+  ylim(c(-4,4)) +
+  xlab("Residuals in number of standard deviations") + 
+  ylab("Sector") +
+  ggtitle("Figure 32") +
+  labs(caption = "Diagnostics box plot for spread of residual standard deviations") +
+  theme(plot.title = element_text(size = 20, hjust = 0.5),
+        plot.caption=element_text(size = 14, hjust = 0.5))
+
+```
+
+
+```{r Part 3l Results Diagnostics Appendix, echo = TRUE, echo = TRUE, results = 'hide', fig.show = 'hide',  fig.width = 16, fig.height = 16}
+
+# Post hoc Tukey's test.
+tukeytest <- emmeans(MEREG4NEST1CORR, list(pairwise ~ Sector), adjust = "tukey")
+tukeyreduection <- tukeytest[2]
+tukeyDF <- as.data.frame(tukeyreduection)
+tukeyDF <-
+  tukeyDF %>%
+  select(1,2,5,6)
+tukeyDF$PWSECTOR <- tukeyDF$pairwise.differences.of.Sector.1
+tukeyDF$EstimatedDiff <- tukeyDF$pairwise.differences.of.Sector.estimate
+tukeyDF$EstimatedDiff <- round(tukeyDF$EstimatedDiff, digits = 3)
+tukeyDF$t.value <- tukeyDF$pairwise.differences.of.Sector.t.ratio
+tukeyDF$p.value <- tukeyDF$pairwise.differences.of.Sector.p.value
+tukeyDF$p.value <- "2.2e-16"
+tukeyDF$p.value[2] <- "5.14e-11"
+tukeyDF <-
+  tukeyDF %>%
+  select(-1,-2,-3,-4)
+tukeyDF <- as_tibble(tukeyDF)
+tukeyDF %>%
+  flextable() %>%
+  set_caption("Results, diagnostics. Post hoc test. Tukey's test. Table 20.")
+
+```
+
+
+```{r Part 3n Results Diagnostics Appendix, echo = TRUE, echo = TRUE, results = 'hide', fig.show = 'hide', fig.width = 16, fig.height = 16}
+
+# Type II Anova test for testing whether the means of the sectors are different within the performed mixed effects regression.
+ANOVA2 <- as.data.frame(anova(MEREG4NEST1CORR, type = "II"))
+ANOVA2 <- rownames_to_column(ANOVA2, "Variable")
+ANOVA2 <-
+  ANOVA2 %>%
+  select(-2)
+ANOVA2$`Pr(>F)` <- c("3.0e-100","5.3e-36")
+ANOVA2 %>%
+  flextable() %>%
+  set_caption("Results. Type II Anova test for random intercept and slope. Table 21.")
+
+```
+
+```{r Part 3ab Methods Appendix,  fig.show = 'hide', echo = TRUE}
+
+# Description of region categories.
+DESCRQMEREG <- data.frame(Variable_Name = c("SSA","FCEEUSSR","MENA",
+                                            "SA","SACAR","WEST","EAOA"),
+                          Measuring = c("Sub-Saharan Africa",
+                                        "Former Communist",
+                                        "Middle East and North Africa",
+                                        "South Asia",
+                                        "South America",
+                                        "Western World",
+                                        "East Asia"))
+DESCRQMEREG %>%
+  kable(caption = "Regions by description. Table 22.", format = "html")
+
+```
+
+```{r Part 3ia Results Appendix, echo = TRUE, echo = TRUE}
+
+# Bootstrapped bias.
+Original <- c(7.1032,1.4199,0.5836,2.2003,0.9759)
+Bias <- c(-0.0000093, -0.001467,-0.00547,-0.003450, 0.000855)
+StdError <- c(0.6488,0.0825,0.0839,0.0827,0.0479)
+DF <- data.frame(Original, Bias, StdError)
+rownames(DF) <- c('Intercept','SectorIndustry','SectorManufacturing',
+                  'SectorServices','LnLabourForce')
+DF %>%
+  flextable() %>%
+  set_caption("Diagnostics. Bootstrapped estimates. Table 23.")
+
+```
+
+# Appendix Part 4
+
+```{r Part 4 Methods Appendix Descriptive Table, echo = TRUE, fig.show = FALSE, results = 'hide'}
+
+# Variables by description.
+DESCR4 <- data.frame(Variable_Name = c("GDPGROWTH","PolityIV","NominalGDP",
+                                       "PerCapitaGDP","CorruptionPerception",
+                                       "PoliticalStability","StateFragility",
+                                       "WorkingAge","MedianAge","IncomeInequality",
+                                       "Unemployment","PoliticalSystem",
+                                       "Country"),
+                    
+                    Measuring = c("Per capita GDP growth %",
+                                  "Polity IV Democracy Index (-10 to 10)",
+                                  "Nominal GDP by country (millions USD). ",
+                                  "Per capita GDP (USD)",
+                                  "Corruption index (1 to 100)",
+                                  "Political stability index",
+                                  "State fragility index",
+                                  "Percentage of population of working age",
+                                  "Median age",
+                                  "Share of income by top 10%",
+                                  "Unemployment rate %",
+                                  "Country category, factor variable",
+                                  "Democracy, anocracy or autocracy, factor variable"))
+DESCR4 %>%
+  kable(caption = "Variables by description. Table 24.", format = "html")
+
+```
+
+```{r Part 4a Appendix Renaming Converting Omitting Results, echo = TRUE, fig.show = FALSE, results = 'hide'}
+
+# Renaming the data set
+GLOBAL <- X2019Data
+
+# Converting the country variable into factor.
+GLOBAL$Country <- as.factor(GLOBAL$Country)
+
+# Omitting rows where with at least one missing observation.
+GLOBAL <- na.omit(GLOBAL)
+
+```
+
+```{r Part 4b Results Appendix, echo = TRUE, results = 'hide', fig.show = FALSE}
+
+# Create table of eigenvalues and proportion of variance.
+CONTVAR <- 
+  GLOBAL %>%
+  select(-1)
+PCAPCA <- PCA(CONTVAR, graph=FALSE)
+PCAPCASUM <- as.data.frame(get_eig(PCAPCA))
+PCAPCASUM %>%
+  flextable() %>%
+  set_caption("PCA eigenvalues and proportion of variance. Table 25.")
+
+```
+
+```{r Part 4ba Results Appendix, echo = TRUE, fig.show = FALSE}
+
+# Checking if the mean eigenvalue is equal to 1.
+sum(as.data.frame(get_eig(PCAPCA))[1])/count(as.data.frame(get_eig(PCAPCA))[1]) == 1
+
+```
+
+```{r Part 4c Computing PCA Results Appendix, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# Compute principal components by country.
+PCA1 <- princomp(~ GDPGrowth+PolityIV+NominalGDP+PerCapitaGDP+
+                          PerCapitaGDP+CorruptionPerception+
+                          PoliticalStability+StateFragility+WorkingAge+
+                          MedianAge+IncomeInequality+Unemployment
+                          , cor = TRUE,
+                        data = GLOBAL)
+```
+
+```{r Part 4d PCA Output Table Results Appendix, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# Function to create table for PCA output. Taken from stackoverflow.
+pca_importance <- function(x) {
+  vars <- x$sdev^2
+  vars <- vars/sum(vars)
+  rbind(`Standard deviation` = x$sdev, `Proportion of Variance` = vars, 
+        `Cumulative Proportion` = cumsum(vars))
+}
+PCASUM <- as.data.frame(pca_importance(summary(PCA1)))
+PCASUM <- rownames_to_column(PCASUM, " ")
+PCASUM %>%
+  flextable() %>%
+  set_caption("PCA stdev. and variance. Table 26.")
+
+```
+
+```{r Part 4e Screeplot Results Appendix, echo = TRUE, fig.show = 'hide', results = 'hide', fig.width = 15, fig.height = 6}
+
+# Create screeplot.
+CONTVAR <- 
+  GLOBAL %>%
+  select(-1)
+PCAPCA<-PCA(CONTVAR, graph=FALSE)
+fviz_screeplot(PCAPCA, addlabels = TRUE, ylim = c(0, 40), ncp = 15, 
+               caption = "Screeplot. Proportion of variance by PC",
+               main = "Figure 33") +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 16),
+        axis.text = element_text(size = 16),
+        plot.caption = element_text(size = 25, hjust = 0.5),
+        plot.title = element_text(size = 30, hjust = 0.5))
+
+
+```
+
+```{r Part 4f Results Appendix, echo = TRUE, results = 'hide', fig.show = 'hide'}
+
+# Six most important PCA:s by loading.
+ALOAD <- as.data.frame(unclass(loadings(PCA1)))[1:4]
+ALOAD <- rownames_to_column(ALOAD, " ")
+ALOAD %>%
+  flextable() %>%
+  set_caption("Principal component by loading. Table 27.")
+
+```
+
+```{r Part 4g Results Appendix, echo = TRUE, results = 'hide', fig.show = FALSE}
+
+# Create PolityIV category by cutoff. Then that factor variable is used for 
+# color and label.
+GLOBAL$PoliticalSystem <- cut(GLOBAL$PolityIV,
+                                breaks=c(-11, -4, 5, 11),
+                              labels=c('Autocracy', 'Anocracy', 'Democracy'))
+
+```
+
+```{r Part 4h Results Appendix, echo = TRUE, results = 'hide', fig.show = 'hide', fig.height = 15, fig.width = 15}
+
+# Plot PCA1 and PCA2 by political system
+autoplot(PCA1, x=1,y=2, data = GLOBAL, colour  = 'PoliticalSystem', size = 4L, loadings = TRUE, 
+         loadings.colour = 'blue', loadings.label = TRUE, 
+         loadings.label.size = 6L) +
+  theme_light() + 
+  scale_colour_discrete("PoliticalSystem") + 
+  geom_text_repel(label = GLOBAL$Country, max.overlaps = 6, size = 6L) +
+  labs(x = "Principal component 1",
+       y = "Principal component 2",
+       title = "Figure 34",
+       caption = "Scatterplot of PCA1 and PCA2 by Country.") +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5, size = 50),
+        plot.caption = element_text(hjust = 0.5, size = 28))
+
+```
+
+```{r Part 4i Results Appendix, echo = TRUE, fig.show = 'hide', fig.height = 15, fig.width = 15}
+
+" Plot PCA1 and PCA3 by political system "
+autoplot(PCA1, x=1, y=3, data = GLOBAL, colour  = 'PoliticalSystem', size = 4L, loadings = TRUE, 
+         loadings.colour = 'blue', loadings.label = TRUE, 
+         loadings.label.size = 6L) +
+  theme_light() + 
+  scale_colour_discrete("PoliticalSystem") + 
+  geom_text_repel(label = GLOBAL$Country, max.overlaps = 6, size = 6L) +
+  labs(x = "Principal component 1",
+       y = "Principal component 3",
+       title = "Figure 35",
+       caption = "Scatterplot of PCA1 and PCA3 by Country.") +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5, size = 50),
+        plot.caption = element_text(hjust = 0.5, size = 28))
+
+```
+
+```{r Part 4j Results Appendix, echo = TRUE, results = 'hide', fig.show = 'hide', fig.height = 20, fig.width = 15}
+
+" Plot PCA1 and PCA4 by political system "
+autoplot(PCA1, x=1, y=4, data = GLOBAL, colour  = 'PoliticalSystem', size = 4L, loadings = TRUE, 
+         loadings.colour = 'blue', loadings.label = TRUE, 
+         loadings.label.size = 6L) +
+  theme_light() + 
+  scale_colour_discrete("PoliticalSystem") + 
+  geom_text_repel(label = GLOBAL$Country, max.overlaps = 6, size = 6L) +
+  labs(x = "Principal component 1",
+       y = "Principal component 4",
+       title = "Figure 36",
+       caption = "Scatterplot of PCA3 and PCA4 by Country.") +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5, size = 50),
+        plot.caption = element_text(hjust = 0.5, size = 28))
+
+```
+
+```{r Part 4k Results Appendix, echo = TRUE, fig.show = 'hide', fig.height = 15, fig.width = 15}
+
+" Plot PCA2 and PCA3 by political system "
+autoplot(PCA1, x=2, y=3, data = GLOBAL, colour  = 'PoliticalSystem', size = 4L, loadings = TRUE, 
+         loadings.colour = 'blue', loadings.label = TRUE, 
+         loadings.label.size = 6L) +
+  theme_light() + 
+  scale_colour_discrete("PoliticalSystem") + 
+  geom_text_repel(label = GLOBAL$Country, max.overlaps = 6, size = 6L) +
+  labs(x = "Principal component 2",
+       y = "Principal component 3",
+       title = "Figure 37",
+       caption = "Scatterplot of PCA2 and PCA3 by Country.") +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20),
+        plot.title = element_text(hjust = 0.5, size = 50),
+        plot.caption = element_text(hjust = 0.5, size = 28))
+
+```
