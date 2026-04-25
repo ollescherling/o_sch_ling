@@ -10,8 +10,6 @@ A small selection of my professional Python programming projects.
 - The Ongoing Risk Analysis Project is used to compare risk levels across different industries when invoices are sent to debt collection.
 
 - Registration Organizational Number Standardizer is a function I have integrated into several projects, used to verify and standardize company registration numbers into the format required by internal systems.
-
-- RStudio University Project, with rendered output available at: https://rpubs.com/ollescherling/967270
 _________________________________________________
 
 - RStudio University Project, with rendered output available at: https://rpubs.com/ollescherling/967270
