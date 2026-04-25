@@ -1,0 +1,113 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Dec  2 16:05:59 2025
+
+@author: OLLESC
+"""
+
+def personal_number_orgnr_standardizer(personal_number_orgnr):
+	from datetime import datetime as dt
+	personal_number_orgnr = str(personal_number_orgnr)
+	"""
+	This function takes a Swedish personal number (personal_number_orgnr) as input and 
+	ensures that it follows a standard format: YYMMDD-ABCD.
+	It removes any country code if present and adds a hyphen if needed.
+	"""
+	# Changing a space to a dash for orgnrs with a space.
+	if (len(personal_number_orgnr) == 11 and personal_number_orgnr[-5] == " " and personal_number_orgnr[:2] == "55"	and personal_number_orgnr.replace(" ", "").isdigit()):  # all other chars are digits
+		personal_number_orgnr = personal_number_orgnr[:6] + '-' + personal_number_orgnr[7:]
+	if personal_number_orgnr:
+		# If the length is not within this 10 to 13, do not standardize.
+		if len(personal_number_orgnr) not in range(10,14):
+			return (personal_number_orgnr, False)
+		# If dash the numbers before the dash are not 6 or 8, do not standardize.
+		elif ('-' in personal_number_orgnr) and len(personal_number_orgnr.split('-')[0]) not in (6,8):
+			return (personal_number_orgnr, False)
+		# If dash and the numbers after the dash are not 4, do not standardize.
+		elif ('-' in personal_number_orgnr) and len(personal_number_orgnr.split('-')[1]) != 4:
+			return (personal_number_orgnr, False)
+		# If space the numbers before the space are not 6 or 8, do not standardize.
+		elif (' ' in personal_number_orgnr) and len(personal_number_orgnr.split(' ')[0]) not in (6,8):
+			return (personal_number_orgnr, False)
+		# If space and the numbers after the space are not 4, do not standardize.
+		elif (' ' in personal_number_orgnr) and len(personal_number_orgnr.split(' ')[1]) != 4:
+			return (personal_number_orgnr, False)
+		# If no dash and no space and the length is 11, do not standardize.
+		elif ('-' not in personal_number_orgnr and ' ' not in personal_number_orgnr) and len(personal_number_orgnr) == 11:
+			return (personal_number_orgnr, False)
+		# If no dash and no space and the length is 13, do not standardize.
+		elif ('-' not in personal_number_orgnr and ' ' not in personal_number_orgnr) and len(personal_number_orgnr) == 13:
+			return (personal_number_orgnr, False)
+		# If the personal_number_orgnr has a dash is in an incorrect location, do not standardize.
+		elif ("-" in personal_number_orgnr and personal_number_orgnr[-5] != "-"):
+			return (personal_number_orgnr, False)
+		# If the personal_number_orgnr has a space is in an incorrect location, do not standardize.
+		elif (" " in personal_number_orgnr and personal_number_orgnr[-5] != " "):
+			return (personal_number_orgnr, False)
+		# If the personal ID number is long and the person is not of legal age, do not standardize.
+		elif len(personal_number_orgnr) in range(12, 14) and int(personal_number_orgnr[2:4]) > dt.now().year - 18:
+			return (personal_number_orgnr, False)
+		# If the personal ID number is short and the person is not of legal age, do not standardize.
+		elif len(personal_number_orgnr) in range(10, 12) and int(personal_number_orgnr[0:2]) > dt.now().year - 18:
+			return (personal_number_orgnr, False)
+		# If the personal ID number is long, and the person is born in the 1900s and is too old, do not standardize.
+		elif len(personal_number_orgnr) in range(12, 14) and personal_number_orgnr[:2].startswith("19") and int(personal_number_orgnr[:4][2:4]) < (dt.now().year - 18) % 100:  # 1900–1907 as of year 2025 → impossible:
+			return (personal_number_orgnr, False)
+		# If the format is short YYMMDDABCD with 10 digits and no dash, then standardize.
+		elif (len(personal_number_orgnr) == 10 and personal_number_orgnr[-5] != "-"): 
+			if int(personal_number_orgnr[2:4]) > 12:
+				return (personal_number_orgnr, False)
+			elif int(personal_number_orgnr[4:6]) > 31:
+				return (personal_number_orgnr, False)
+			else:
+				return (personal_number_orgnr[:-4] + "-" + personal_number_orgnr[-4:], True)
+		# If the format is short YYMMDD-ABCD with 10 digits and a dash, then standardize.
+		elif (len(personal_number_orgnr) == 11 and personal_number_orgnr[-5] == "-"):
+				if int(personal_number_orgnr[2:4]) > 12:
+					return (personal_number_orgnr, False)
+				elif int(personal_number_orgnr[4:6]) > 31:
+					return (personal_number_orgnr, False)
+				else:
+					return (personal_number_orgnr, True)
+		# If the format is short YYMMDD ABCD with 10 digits and a space, then standardize.
+		elif (len(personal_number_orgnr) == 11 and personal_number_orgnr[-5] == " "):
+				if int(personal_number_orgnr[2:4]) > 12:
+					return (personal_number_orgnr, False)
+				elif int(personal_number_orgnr[4:6]) > 31:
+					return (personal_number_orgnr, False)
+				else:
+					return (personal_number_orgnr[:6] + '-' + personal_number_orgnr[7:], True)
+		elif len(personal_number_orgnr) in range(12,14):
+			# If the personal ID number is long and the person is not born in the 1900s or 2000s, then do not standardize the personal ID number.
+			if ((len(personal_number_orgnr) == 12 or (len(personal_number_orgnr) == 13) and personal_number_orgnr[-5] == "-")) and personal_number_orgnr[:2] not in ('19', '20'):
+				return (personal_number_orgnr, False)
+			# If the format is long YYYYMMDDABCD with 12 digits and no dash, then standardize.
+			elif (len(personal_number_orgnr) == 12 and personal_number_orgnr[-5] != "-"):
+					if int(personal_number_orgnr[4:6]) > 12:
+						return (personal_number_orgnr, False)
+					elif int(personal_number_orgnr[6:8]) > 31:
+						return (personal_number_orgnr, False)
+					else:
+						return (personal_number_orgnr[2:][:-4] + "-" + personal_number_orgnr[2:][-4:], True) # Excluding the first two digits signifying the century and adding a dash in the fifth spot from the last.
+			# If the format is long YYYYMMDD-ABCD with 12 digits and a dash, then standardize.
+			elif (len(personal_number_orgnr) == 13 and personal_number_orgnr[-5] == "-"):
+					if int(personal_number_orgnr[4:6]) > 12:
+						return (personal_number_orgnr, False)
+					elif int(personal_number_orgnr[6:8]) > 31:
+						return (personal_number_orgnr, False)
+					else:
+						return (personal_number_orgnr[2:], True) # Excluding the first two digits signifying the century.
+			# If the format is long YYYYMMDD ABCD with 12 digits and a space, then do not standardize.
+			elif (len(personal_number_orgnr) == 13 and personal_number_orgnr[-5] == " "):
+					if int(personal_number_orgnr[4:6]) > 12:
+						return (personal_number_orgnr, False)
+					elif int(personal_number_orgnr[6:8]) > 31:
+						return (personal_number_orgnr, False)
+					else:
+						return (personal_number_orgnr[2:8] + '-' + personal_number_orgnr[9:], True) # Excluding the first two digits signifying the century.
+			else:
+				return (personal_number_orgnr, False)
+	else:
+		return ('None', False)
+	
+personal_number_orgnr_standardizer('19010221-0853')
