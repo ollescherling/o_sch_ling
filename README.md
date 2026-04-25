@@ -3,7 +3,7 @@ A small selection of my Python programming projects, which I have developed and 
 
 - PDF Contract Verifier V16 is a Python program which individually verifies the validity of contracts and assists in efficiently saving these documents.
 
-- PDF Data Exporter Python is also a Python program and loops through PDF documents in a selected folder, collects, and exports specific data points to an Excel file.
+- PDF Data Exporter Python is also a Python program and loops through PDF documents in a selected folder, collects, and exports specific data points to an Excel file. It saved several months of manual work.
 
 - Mass block of inactive customers is used for identifying inactive customers, of which a file thereafter is sent to a system team for a mass block.
 
