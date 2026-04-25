@@ -5,7 +5,7 @@ A small selection of my professional Python programming projects.
 
 - PDF Data Exporter Python is a Python program that loops through PDF documents in a selected folder, collects specific data points, and exports them to an Excel file. It has saved several months of manual work.
 
-- Identification of Inactive Customers is used to identify inactive customers, after which a file is sent to a system team for mass blocking.
+- Identification of Inactive Customers is used to identify inactive customers, after which a file is sent to a system team for mass blocking, removing unnecessary risk.
 
 - The Ongoing Risk Analysis Project is used to compare risk levels across different industries when invoices are sent to debt collection.
 
