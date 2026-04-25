@@ -1,0 +1,595 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jan 27 10:56:01 2026
+@author: OLLESC
+"""
+
+" 4-eyed by Kristine. "
+
+"""
+I start with this project Inactive 5 Year Mass Block as an IDEA case.
+Next limit zero (and really make sure that inactive customers will get limit zero from the previous process. )
+Third risk class 1 mass block.
+
+And then mass deletion of ENKs and deceased customers comes later as the PALS team is occuppied with migrating DK.
+"""
+
+"""
+The purpose of this project is to mass block every card group for customers which 
+have been inactive for 5 years or longer. This must be performed before the project
+Limit 0.
+"""
+
+import pandas as pd
+
+" Function for clearing trailing spaces and unnecessary .0 decimals. "
+
+def strip_all_columns(df):
+	for col in df.columns:
+		if df[col].dtype == "object":
+			df[col] = (
+				df[col]
+				.astype(str)
+				.str.replace(".0", "", regex=False)
+				.str.replace(" 00:00:00", "", regex=False)
+				.str.strip()
+			)
+	return df
+
+" At first extracting data from the entire portfolio with columns as orgnr, company name, security, and limit. "
+
+def read_excel_any(path):
+	try:
+		df = pd.read_excel(path, engine="openpyxl")
+		return df
+	except Exception as e:
+		print("Error loading Excel:", e)
+		return None
+
+# entire_portfolio_prev_df = read_excel_any("C:/Users/OLLESC/Downloads/IDEA0009788 Entire Portfolio 2026-03-16.xlsx")
+entire_portfolio_df = read_excel_any("C:/Users/OLLESC/Downloads/PALS IDEA0009962 - Swedish Portfolio report 2026-04-21.xlsx")
+entire_portfolio_df = entire_portfolio_df.astype(str) # Converting entire data frame to string.
+entire_portfolio_df = strip_all_columns(entire_portfolio_df) # Cleaning all rows.
+
+# Clearing trailing zeros on the left side so it can be merged.
+entire_portfolio_df['PARTNER_ID'] = (
+	entire_portfolio_df['PARTNER_ID']
+	.astype('string')
+	.str.lstrip('0')
+)
+
+list(enumerate(entire_portfolio_df.columns))
+
+entire_portfolio_cleared_df = entire_portfolio_df
+
+# Creating filters for banks, financial institutions, and public sector customers.
+# Safe conversion for 3rd-4th digits
+orgnrs_portfolio = entire_portfolio_cleared_df['FORETAK_NR'].str.strip()
+# Safe conversion of first two/three digits
+orgnrs_portfolio_prefix2 = pd.to_numeric(orgnrs_portfolio.str[:2], errors='coerce').astype('Int64')  # first 2 digits
+orgnrs_portfolio_prefix3 = pd.to_numeric(orgnrs_portfolio.str[:3], errors='coerce').astype('Int64')  # first 3 digits
+# Mask for 3rd-4th digits
+third_fourth_digits_portfolio = pd.to_numeric(orgnrs_portfolio.str[2:4], errors='coerce').astype('Int64')
+# Combined mask:
+# - Public sector: 20–26
+# - Banks/financial institutions: 501–519
+# - 3rd-4th digits > 12
+kommun_region_mask_portfolio = (
+	orgnrs_portfolio.notna() &
+	(orgnrs_portfolio.str.len() == 10) &
+	(
+		((orgnrs_portfolio_prefix2 >= 20) & (orgnrs_portfolio_prefix2 <= 26)) |      # public sector
+		((orgnrs_portfolio_prefix3 >= 501) & (orgnrs_portfolio_prefix3 <= 519))       # banks/financials
+	) &
+	(third_fourth_digits_portfolio > 12)
+)
+
+# Filtering out rows connected to Circle K, the public sector, banks, financial institutions,
+# foreign branches, foreign companies, and empty orgnrs.
+inclusion_rows_portfolio_df = entire_portfolio_cleared_df[
+	~entire_portfolio_cleared_df['REDIGERT_NV'].str.contains(
+		r"STATOIL|\bCIRCLE\b|CIRCLEK|\bINGO\b|\bKOMMUN\b|REGION|MYNDIGHET|BANK|\bSEB\b|\bOY\b",
+		case=False,
+		na=False
+	) &
+	entire_portfolio_cleared_df['FORETAK_NR'].notna() &
+	~entire_portfolio_cleared_df['FORETAK_NR'].isin([
+		'5560006834',
+		'0000000000',
+		''
+	]) &
+	~kommun_region_mask_portfolio
+]
+
+# Rows excluded by the filter above.
+exclusion_rows_portfolio_df = entire_portfolio_cleared_df[
+	entire_portfolio_cleared_df['REDIGERT_NV'].str.contains(
+		r"STATOIL|\bCIRCLE\b|CIRCLEK|\bINGO\b|\bKOMMUN\b|REGION|MYNDIGHET|BANK|\bSEB\b|\bOY\b",
+		case=False,
+		na=False
+	) |
+	entire_portfolio_cleared_df['FORETAK_NR'].isna() |
+	entire_portfolio_cleared_df['FORETAK_NR'].isin([
+		'5560006834',
+		'0000000000',
+		''
+	]) |
+	kommun_region_mask_portfolio
+]
+
+len(entire_portfolio_cleared_df)
+len(inclusion_rows_portfolio_df)
+len(exclusion_rows_portfolio_df)
+len(entire_portfolio_cleared_df) - len(inclusion_rows_portfolio_df)
+len(entire_portfolio_cleared_df) - len(inclusion_rows_portfolio_df) == len(exclusion_rows_portfolio_df)
+
+# =============================================================================
+# # Exclusion rows exported to downloads.
+# output_path_exclusion = r"C:\Users\OLLESC\Downloads\Excluded Rows Inactive.xlsx"
+# exclusion_rows_portfolio_df.to_excel(output_path_exclusion, index=False)
+# # Exporting for verifying whether STATOIL or CIRCLE K is still in the data frame.
+# output_path_inclusion = r"C:\Users\OLLESC\Downloads\Included Rows Inactive.xlsx"
+# inclusion_rows_portfolio_df.to_excel(output_path_inclusion, index=False)
+# =============================================================================
+
+" Uploading and filtering out rows for the data set with TOTÖV blocks. "
+
+# Now I need to merge the block codes onto the portfolio above.
+portfolio_with_blocks_df = read_excel_any("C:/Users/OLLESC/Downloads/IDEA0009909 SE Data Extract - TOTOV Report for B2B.xlsx")
+# Converting entire data frame to string.
+portfolio_with_blocks_df = portfolio_with_blocks_df.astype(str)
+# Clearing trailing spaces.
+portfolio_with_blocks_df = strip_all_columns(portfolio_with_blocks_df)
+
+portfolio_with_blocks_cleared_df = portfolio_with_blocks_df
+
+list(enumerate(portfolio_with_blocks_cleared_df.columns))
+
+# Creating filters for banks, financial institutions, and public sector customers.
+# Safe conversion for 3rd-4th digits
+orgnrs_blocks = portfolio_with_blocks_cleared_df['ORGANISASJONSNR'].str.strip()
+
+# Safe conversion of first two/three digits
+orgnrs_blocks_prefix2 = pd.to_numeric(orgnrs_blocks.str[:2], errors='coerce').astype('Int64')  # first 2 digits
+orgnrs_blocks_prefix3 = pd.to_numeric(orgnrs_blocks.str[:3], errors='coerce').astype('Int64')  # first 3 digits
+
+# Mask for 3rd-4th digits
+third_fourth_digits_blocks = pd.to_numeric(orgnrs_blocks.str[2:4], errors='coerce').astype('Int64')
+
+# Combined mask:
+# - Public sector: 20–26
+# - Banks/financial institutions: 501–519
+# - 3rd-4th digits > 12
+kommun_region_mask_blocks = (
+	orgnrs_blocks.notna() &
+	(orgnrs_blocks.str.len() == 10) &
+	(
+		((orgnrs_blocks_prefix2 >= 20) & (orgnrs_blocks_prefix2 <= 26)) |
+		((orgnrs_blocks_prefix3 >= 501) & (orgnrs_blocks_prefix3 <= 519))
+	) &
+	(third_fourth_digits_blocks > 12)
+)
+
+# Filtering out rows connected to Circle K, the public sector, banks, financial institutions,
+# foreign branches, foreign companies, and empty orgnrs.
+inclusion_rows_blocks_df = portfolio_with_blocks_cleared_df[
+	~portfolio_with_blocks_cleared_df['HOVEDNAVN'].str.contains(
+		r"STATOIL|\bCIRCLE\b|CIRCLEK|\bINGO\b|\bKOMMUN\b|REGION|MYNDIGHET|BANK|\bSEB\b|\bOY\b",
+		case=False,
+		na=False
+	) &
+	~portfolio_with_blocks_cleared_df['HOVEDNAVN'].str.startswith('..') &
+	portfolio_with_blocks_cleared_df['ORGANISASJONSNR'].notna() &
+	~portfolio_with_blocks_cleared_df['ORGANISASJONSNR'].isin([
+		'5560006834',
+		'0000000000',
+		''
+	]) &
+	~kommun_region_mask_blocks
+]
+
+# Rows excluded by the filter above.
+exclusion_rows_blocks_df = portfolio_with_blocks_cleared_df[
+	portfolio_with_blocks_cleared_df['HOVEDNAVN'].str.contains(
+		r"STATOIL|\bCIRCLE\b|CIRCLEK|\bINGO\b|\bKOMMUN\b|REGION|MYNDIGHET|BANK|\bSEB\b|\bOY\b",
+		case=False,
+		na=False
+	) |
+	portfolio_with_blocks_cleared_df['HOVEDNAVN'].str.startswith('..') |
+	portfolio_with_blocks_cleared_df['ORGANISASJONSNR'].isna() |
+	portfolio_with_blocks_cleared_df['ORGANISASJONSNR'].isin([
+		'5560006834',
+		'0000000000',
+		''
+	]) |
+	kommun_region_mask_blocks
+]
+
+len(portfolio_with_blocks_cleared_df)
+len(inclusion_rows_blocks_df)
+len(exclusion_rows_blocks_df)
+len(portfolio_with_blocks_cleared_df) - len(inclusion_rows_blocks_df)
+len(portfolio_with_blocks_cleared_df) - len(inclusion_rows_blocks_df) == len(exclusion_rows_blocks_df)
+
+"""
+Merging the data sets with included rows. It needs to occur as only the portfolio data set contains data on 
+latest purchases.
+"""
+
+inclusion_rows_portfolio_df = inclusion_rows_portfolio_df.rename(
+	columns={"PARTNER_ID": "PID_Portfolio"}
+)
+inclusion_rows_blocks_df  = inclusion_rows_blocks_df.rename(
+	columns={"PARTNER_ID": "PID_Blocks"}
+)
+
+list(enumerate(inclusion_rows_portfolio_df.columns))
+list(enumerate(inclusion_rows_blocks_df.columns))
+
+# Select only the columns we need from the portfolio
+portfolio_cols_to_merge = ["PID_Portfolio", "KREDGRENSE_BEL", "OPPRETTET_DT", "ORDRELEV_DT"]
+
+# Merge with blocks as main dataframe (left join)
+blocks_merged_df = inclusion_rows_blocks_df.merge(
+	inclusion_rows_portfolio_df[portfolio_cols_to_merge],
+	left_on="PID_Blocks",
+	right_on="PID_Portfolio",
+	how="left"
+)
+
+list(enumerate(blocks_merged_df.columns))
+list(enumerate(inclusion_rows_blocks_df.columns))
+
+# Converting the credit limit column into numeric.
+blocks_merged_df['KREDGRENSE_BEL'] = pd.to_numeric(blocks_merged_df['KREDGRENSE_BEL'], errors='coerce')
+
+# Quality check. Filter rows where PID_Portfolio is NOT in blocks. 
+# If these data farmes would be large in size it would mean that the data sets do not overlap properly.
+# Rows where PIDs in portfolio are not in blocks.
+portfolio_only_df = inclusion_rows_portfolio_df[
+	~inclusion_rows_portfolio_df["PID_Portfolio"].isin(inclusion_rows_blocks_df["PID_Blocks"])
+]
+# Rows where PIDs in blocks are not in portfolio.
+blocks_only_df = inclusion_rows_blocks_df[
+	~inclusion_rows_blocks_df["PID_Blocks"].isin(inclusion_rows_portfolio_df["PID_Portfolio"])
+]
+
+"""
+Keeping rows where the customer last has fueled over 5 years ago or where the account 
+has been created more than 5 years ago but the customer has not fueled at all.
+"""
+
+# Keep rows where the customer last has fueled over 5 years ago
+# or where the account has been created more than 5 years ago
+# but the customer has not fueled at all.
+condition_date_recent_invoice = (
+	((pd.to_datetime(blocks_merged_df["ORDRELEV_DT"], errors="coerce") < pd.Timestamp("2023-04-21"))
+	|
+	(blocks_merged_df["ORDRELEV_DT"]
+	.astype(str)
+	.str.fullmatch(r"\s*00:00:00(?:\.0+)?\s*")))
+)
+
+condition_date_upplagd_or_missing_invoice = (
+	((pd.to_datetime(blocks_merged_df["OPPRETTET_DT"], errors="coerce") < pd.Timestamp("2023-04-21"))
+	|
+	(blocks_merged_df["OPPRETTET_DT"]
+	.astype(str)
+	.str.fullmatch(r"\s*00:00:00(?:\.0+)?\s*")))
+	&
+	(
+	    (blocks_merged_df["ORDRELEV_DT"] == 'nan')
+		|
+		(blocks_merged_df["ORDRELEV_DT"] == '')
+		|
+		blocks_merged_df["ORDRELEV_DT"].isna()
+	)
+)
+
+# Apply the filter using the combined condition inside []
+blocks_merged_conditioned_df = blocks_merged_df[
+	condition_date_recent_invoice | condition_date_upplagd_or_missing_invoice
+]
+list(enumerate(blocks_merged_conditioned_df.columns))
+
+" Finding open accounts accounts. "
+
+blocks_merged_conditioned_df['PAR_SPERRE_KODE'].unique()
+
+open_accounts_df = blocks_merged_conditioned_df[
+# =============================================================================
+# 	~blocks_merged_conditioned_df['PAR_SPERRE_KODE'].isin(
+# 		['OPP', 'INK', 'DØD', 'KON', 'UØN', 'RET', 'TVA']
+# 	)
+# =============================================================================
+	(blocks_merged_conditioned_df['PAR_SPERRE_KODE'] == 'OK')
+	&
+	blocks_merged_conditioned_df['KREDSTOPP_KD'].isin(['OK', 'EEØ'])
+	&
+	blocks_merged_conditioned_df['KTO_SPERRE_KODE'].isin(['OK', 'EEØ'])
+]
+
+# Number of companies open.
+len(open_accounts_df['ORGANISASJONSNR'].unique())
+# Number of card groups open.
+len(open_accounts_df)
+
+list(enumerate(open_accounts_df.columns))
+
+# Blocked accounts, everything NOT in open_accounts_df
+blocked_accounts_df = blocks_merged_conditioned_df[
+# =============================================================================
+# 	blocks_merged_conditioned_df['PAR_SPERRE_KODE'].isin(
+# 		['OPP', 'INK', 'DØD', 'KON', 'UØN', 'RET', 'TVA']
+# 	)
+# =============================================================================
+	~(blocks_merged_conditioned_df['PAR_SPERRE_KODE'] == 'OK')
+	|
+	~blocks_merged_conditioned_df['KREDSTOPP_KD'].isin(['OK', 'EEØ'])
+	|
+	~blocks_merged_conditioned_df['KTO_SPERRE_KODE'].isin(['OK', 'EEØ'])
+]
+
+# Number of companies blocked.
+len(blocked_accounts_df['ORGANISASJONSNR'].unique())
+# Number of card groups blocked.
+len(blocked_accounts_df)
+
+# Quality check.
+len(blocks_merged_conditioned_df)
+len(open_accounts_df)
+len(blocked_accounts_df)
+len(blocks_merged_conditioned_df) - len(open_accounts_df)
+len(blocks_merged_conditioned_df) == len(open_accounts_df) + len(blocked_accounts_df)
+
+
+" Filtering out all rows which are in the Rsk Class 1 Mass Block file. "
+
+inactive_riskclass1_df = read_excel_any("C:/Users/OLLESC/Downloads/SE Inactive Risk Class 1 Unique PIDs 2026-04-21.xlsx")
+inactive_riskclass1_df  = inactive_riskclass1_df .astype(str) # Converting entire data frame to string.
+inactive_riskclass1_df  = strip_all_columns(inactive_riskclass1_df ) # Cleaning all rows.
+
+inactive_riskclass1_cleared_df = inactive_riskclass1_df  
+
+list(enumerate(open_accounts_df.columns))
+list(enumerate(inactive_riskclass1_cleared_df.columns))
+
+# Quality check. Which customers which are already in the risk class 1 file.
+filtered_df_ = open_accounts_df[
+	open_accounts_df['PID_Blocks'].isin(
+		inactive_riskclass1_cleared_df['PID_Blocks']
+	)
+]
+
+# Filtering out rows already present in the risk class 1 file.
+open_accounts_df = open_accounts_df[
+	~open_accounts_df['PID_Blocks'].isin(
+		inactive_riskclass1_cleared_df['PID_Blocks']
+	)
+]
+
+"""
+Here I need to make sure it is END CUST so it does not interfere with AML approved cases.
+It must also be for a full year.
+"""
+
+"""
+And also use the same NEW CUST for the other projects before submitting.
+"""
+
+# Importng NEW CUST.
+NEW_CUST_df = read_excel_any("C:/Users/OLLESC/Downloads/NEW CUST 2026-04-01 to 2026-04-21.xlsx")
+# Converting entire data frame to string.
+NEW_CUST_df = NEW_CUST_df.astype(str)
+# Clearing trailing spaces.
+NEW_CUST_df = strip_all_columns(NEW_CUST_df)
+
+# Filtering out closed and rejected applications.
+NEW_CUST_df = NEW_CUST_df[
+	~NEW_CUST_df['Request Status'].isin(['90', '95'])
+]
+
+# Renaming the orgnr variable.
+NEW_CUST_df = NEW_CUST_df.rename(
+	columns={"Prime Org ID": "Orgnr_NEW_CUST"}
+)
+
+list(enumerate(NEW_CUST_df.columns))
+list(enumerate(open_accounts_df.columns))
+
+# Appending "NEW_CUST" to every row that is a new customer
+open_accounts_df['NEW_CUST'] = (
+	open_accounts_df['ORGANISASJONSNR']
+	.isin(NEW_CUST_df['Orgnr_NEW_CUST'])
+).map({True: 'NEW_CUST', False: pd.NA})
+
+" Filtering out companies with open items. "
+
+open_items_df = read_excel_any("C:/Users/OLLESC/Downloads/Open Items Redacted 2026-04-21.xlsx")
+open_items_df = open_items_df.astype(str) # Converting entire data frame to string.
+open_items_df = strip_all_columns(open_items_df) # Cleaning all rows.
+
+# Filtering relevant columns.
+open_items_unique_df = open_items_df.loc[:, [
+	'CUSTOMER_ID',
+	'REG_NUMBER',
+	'NAME'
+]].drop_duplicates()
+
+# Quality check, the open_items_unique_df is unique in the number of companies.
+len(open_items_unique_df['CUSTOMER_ID'].drop_duplicates()) == len(open_items_unique_df)
+
+list(enumerate(open_accounts_df.columns))
+list(enumerate(open_items_df.columns))
+
+# Series containing only open items Partner IDs.
+open_items_PID_series = open_items_unique_df['CUSTOMER_ID']
+
+# Merge using only the series (will merge on the series values)
+open_accounts_df['Open_Items'] = (
+	open_accounts_df['PID_Blocks']
+	.isin(open_items_PID_series)
+).map({True: 'Open_Item', False: pd.NA})
+
+" Filtering out companies with SLUBON. SLU in F_FORHOLD_HTP and BON in F_FORHOLD_UTP. "
+
+# Quality check.
+SLU_BON_df = open_accounts_df[
+	open_accounts_df['F_FORHOLD_HTP'].str.contains('SLU', na=False) &
+	open_accounts_df['F_FORHOLD_UTP'].str.contains('BON', na=False) 
+	
+]
+
+# All 
+open_accounts_df = open_accounts_df[
+	open_accounts_df['F_FORHOLD_HTP'].str.contains('SLU', na=False)
+]
+
+" Creating the final data frame by filtering out NEW CUST and open items. "
+
+# Filtering out the OPP, and NEW_CUST.
+final_df = open_accounts_df[
+    open_accounts_df['NEW_CUST'].isna() &
+	open_accounts_df['Open_Items'].isna()
+]
+
+len(final_df) # Length of the final data frame where every account ID will be blocked.
+len(open_accounts_df) # Length of data frame before filtering out NEW CUST and open items.
+
+list(enumerate(final_df.columns))
+
+# Filtering out unique rows for the Partner IDs for the mass comment creation.
+unique_final_df = final_df[
+	['PID_Blocks', 'PARTNER_TP', 'HOVEDNAVN', 'ORGANISASJONSNR',
+	 'KREDGRENSE_BEL', 'OPPRETTET_DT', 'ORDRELEV_DT', 'NEW_CUST', 'Open_Items']
+].drop_duplicates()
+# Quality check. These are of the same length, thus the partner IDs are unique.
+len(unique_final_df)
+len(unique_final_df['PID_Blocks'].drop_duplicates())
+
+"""
+When I send them the Excel files I need to refer to an IDEA case for the mass
+borgen removal regarding the mass comment creation in the LOG.
+"""
+
+"""
+For mass deleting ENKs I need to create a separate project. Their block codes
+do not matter when the only criteria is inactivity for over 5 years.
+"""
+
+" Sorting them by time as decending first by ORDRELEV_DT and thereafter OPPRETTET_DT where ORDRELEV_DT is nan. "
+
+final_df["ORDRELEV_DT"] = pd.to_datetime(
+	final_df["ORDRELEV_DT"],
+	errors="coerce"
+)
+final_df["OPPRETTET_DT"] = pd.to_datetime(
+	final_df["OPPRETTET_DT"],
+	errors="coerce"
+)
+final_df = final_df.sort_values(
+	by=["ORDRELEV_DT", "OPPRETTET_DT"],
+	ascending=[False, False]
+)
+unique_final_df["ORDRELEV_DT"] = pd.to_datetime(
+	unique_final_df["ORDRELEV_DT"],
+	errors="coerce"
+)
+unique_final_df["OPPRETTET_DT"] = pd.to_datetime(
+	unique_final_df["OPPRETTET_DT"],
+	errors="coerce"
+)
+unique_final_df = unique_final_df.sort_values(
+	by=["ORDRELEV_DT", "OPPRETTET_DT"],
+	ascending=[False, False]
+)
+
+# Convert back to string and remove " 00:00:00. "
+final_df["ORDRELEV_DT"] = final_df["ORDRELEV_DT"].astype(str).str.replace(" 00:00:00", "", regex=False)
+final_df["OPPRETTET_DT"] = final_df["OPPRETTET_DT"].astype(str).str.replace(" 00:00:00", "", regex=False)
+unique_final_df["ORDRELEV_DT"] = unique_final_df["ORDRELEV_DT"].astype(str).str.replace(" 00:00:00", "", regex=False)
+unique_final_df["OPPRETTET_DT"] = unique_final_df["OPPRETTET_DT"].astype(str).str.replace(" 00:00:00", "", regex=False)
+
+# =============================================================================
+# # Exporting the version with account ID Excel. 
+# # This file is used for setting a MAN block on every single account ID, meaning card group.
+# final_df.to_excel("C:/Users/OLLESC/Downloads/SE Inactive Customers Account IDs 2026-04-21.xlsx", index=False)
+# # Exporting the version with Unique PIDs to Excel. 
+# # This file is used for the mass LOG comment creation being "MASS BLOCK INACTIVE DATE" and thus the PIDs need to be unique.
+# unique_final_df.to_excel("C:/Users/OLLESC/Downloads/SE Inactive Customers Unique PIDs 2026-04-21.xlsx", index=False)
+# =============================================================================
+
+" Quality checking open items and NEW CUST after the PALS-team has mass blocked them to see if any are NEW CUST or re-opened. "
+
+quality_check_final_df = final_df
+
+# Most recent open items.
+open_items_df = read_excel_any("C:/Users/OLLESC/Downloads/Open Items Redacted 2026-04-10.xlsx")
+# I call it END_CUST instead as it also includes ASSESSM cases.
+END_CUST_df = read_excel_any("C:/Users/OLLESC/Downloads/Open Items Redacted 2026-03-31.xlsx")
+
+# I call it END_CUST instead as it also includes ASSESSM cases.
+END_CUST_df = read_excel_any("C:/Users/OLLESC/Downloads/END CUST 2025-03-31 to 2026-04-10.xlsx")
+# Converting entire data frame to string.
+END_CUST_df = END_CUST_df.astype(str)
+# Clearing trailing spaces.
+END_CUST_df = strip_all_columns(END_CUST_df)
+
+# Filtering out closed and rejected applications.
+END_CUST_df = END_CUST_df[
+	~END_CUST_df['Request Status'].isin(['90', '95'])
+]
+
+# Renaming the orgnr variable.
+END_CUST_df = END_CUST_df.rename(
+	columns={"Prime Org ID": "Orgnr_NEW_CUST"}
+)
+
+list(enumerate(END_CUST_df.columns))
+list(enumerate(open_accounts_df.columns))
+
+# Appending "NEW_CUST" to every row that is a new customer
+quality_check_final_df['END_CUST'] = (
+	quality_check_final_df['ORGANISASJONSNR']
+	.isin(END_CUST_df['Orgnr_NEW_CUST'])
+).map({True: 'NEW_CUST', False: pd.NA})
+
+quality_check_open_items_df = read_excel_any("C:/Users/OLLESC/Downloads/Open Items Redacted 2026-04-10.xlsx")
+quality_check_open_items_df = quality_check_open_items_df.astype(str) # Converting entire data frame to string.
+quality_check_open_items_df = strip_all_columns(quality_check_open_items_df) # Cleaning all rows.
+
+# Filtering relevant columns.
+quality_check_open_items_df = quality_check_open_items_df.loc[:, [
+	'CUSTOMER_ID',
+	'REG_NUMBER',
+	'NAME'
+]].drop_duplicates()
+
+# Quality check, the open_items_df is unique in the number of companies.
+len(quality_check_open_items_df['CUSTOMER_ID'].drop_duplicates()) == len(quality_check_open_items_df)
+
+list(enumerate(open_accounts_df.columns))
+list(enumerate(quality_check_open_items_df.columns))
+
+# Series containing only open items Partner IDs.
+quality_check_open_items_PID_series = quality_check_open_items_df['CUSTOMER_ID']
+
+# Merge using only the series (will merge on the series values)
+quality_check_final_df['Quality_Open_Items'] = (
+	quality_check_final_df['PID_Blocks']
+	.isin(quality_check_open_items_PID_series)
+).map({True: 'Open_Item', False: pd.NA})
+
+list(enumerate(quality_check_final_df.columns))
+
+# Filtering customers which either have applied or have open items.
+active_customer_df = quality_check_final_df[
+	quality_check_final_df[["END_CUST", "Quality_Open_Items"]]
+	.notna()
+	.any(axis=1)
+]
+
+
+active_customer_df
+
+
