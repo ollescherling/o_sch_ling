@@ -1,19 +1,21 @@
 _________________________________________________
 A small selection of my professional Python programming projects.
 
-- PDF Contract Verifier V16 is a Python program which individually verifies the validity of contracts and assists in efficiently saving these documents.
+- PDF Contract Verifier V16 is a Python program that verifies the validity of contracts individually and assists in efficiently saving these documents.
 
-- PDF Data Exporter Python is also a Python program which loops through PDF documents in a selected folder, collects, and exports specific data points to an Excel file. It saved several months of manual work.
+- PDF Data Exporter Python is a Python program that loops through PDF documents in a selected folder, collects specific data points, and exports them to an Excel file. It has saved several months of manual work.
 
-- Identification of inactive customers is used for identifying inactive customers, of which a file thereafter is sent to a system team for a mass block.
+- Identification of Inactive Customers is used to identify inactive customers, after which a file is sent to a system team for mass blocking.
 
-- The ongoing risk analysis project is used to compare risk levels between different industries when invoices are sent to debt collection.
+- The Ongoing Risk Analysis Project is used to compare risk levels across different industries when invoices are sent to debt collection.
 
-- Registration Organizational Number Standardizer is a function I have integrated into several projects which is used to verify and standardize company registration numbers into the format which is applicable in the internal systems.
+- Registration Organizational Number Standardizer is a function I have integrated into several projects, used to verify and standardize company registration numbers into the format required by internal systems.
+
+- RStudio University Project, with rendered output available at: https://rpubs.com/ollescherling/967270
 _________________________________________________
 
-- RStudio University Project with the rendered output in https://rpubs.com/ollescherling/967270
+- RStudio University Project, with rendered output available at: https://rpubs.com/ollescherling/967270
 _________________________________________________
 
-- Excel KPI Automation contains a small selection of the macros I have created for the monthly KPIs, which reduces the time spent on this process by approximately half.
+- Excel KPI Automation contains a small selection of the macros I have created for monthly KPIs, reducing the time spent on this process by approximately half.
 _________________________________________________
