@@ -1,0 +1,1186 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Mar 30 14:19:35 2026
+
+@author: OLLESC
+"""
+
+" The purpose of this project is to statistically analyze profitability in the portfolio. "
+
+import pandas as pd
+
+# Making it possible to display results more widely in the console.
+pd.set_option('display.max_columns', None)
+pd.set_option('display.width', 120)
+pd.set_option('display.max_colwidth', 50)
+
+" Function for clearing trailing spaces and unnecessary .0 decimals. "
+
+def strip_all_columns(df):
+	
+	# ---Drop duplicate columns ---
+	df = df.loc[:, ~df.columns.duplicated()]
+
+	for col in df.columns:
+		if df[col].dtype == "object":
+			df[col] = (
+				df[col]
+				.astype(str)
+				.str.replace(".0", "", regex=False)
+				.str.replace(" 00:00:00", "", regex=False)
+				.str.strip()
+			)
+	return df
+
+def read_excel_any_many_sheets(path):
+	try:
+		xls = pd.read_excel(path, sheet_name=None, engine="openpyxl")
+		return xls
+	except Exception as e:
+		print("Error loading Excel:", e)
+		return None
+
+" At first extracting data from the entire portfolio with columns as orgnr, company name, security, and limit. "
+
+def read_excel_any(path):
+	try:
+		df = pd.read_excel(path, engine="openpyxl")
+		return df
+	except Exception as e:
+		print("Error loading Excel:", e)
+		return None
+
+all_monitored_customers_df = read_excel_any("C:/Users/OLLESC/Downloads/All monitored in UC 2026-03-27.xlsx")
+all_monitored_customers_df = all_monitored_customers_df.astype(str) # Converting entire data frame to string.
+all_monitored_customers_df = strip_all_columns(all_monitored_customers_df) # Cleaning all rows.
+
+all_monitored_customers_cleared_df = all_monitored_customers_df 
+
+# Replacing spaces with underscores in column names.
+all_monitored_customers_cleared_df.columns = (
+	all_monitored_customers_cleared_df.columns
+	.str.replace(' ', '_', regex=False)
+)
+
+# Creating filters for banks, financial institutions, and public sector customers.
+# Safe conversion for 3rd-4th digits
+orgnrs_portfolio = all_monitored_customers_cleared_df['Org/Personnummer'].str.strip()
+# Safe conversion of first two/three digits
+orgnrs_portfolio_prefix2 = pd.to_numeric(orgnrs_portfolio.str[:2], errors='coerce').astype('Int64')  # first 2 digits
+orgnrs_portfolio_prefix3 = pd.to_numeric(orgnrs_portfolio.str[:3], errors='coerce').astype('Int64')  # first 3 digits
+# Mask for 3rd-4th digits
+third_fourth_digits_portfolio = pd.to_numeric(orgnrs_portfolio.str[2:4], errors='coerce').astype('Int64')
+# Combined mask:
+# - Public sector: 20–26
+# - Banks/financial institutions: 501–519
+# - 3rd-4th digits > 12
+kommun_region_mask_portfolio = (
+	orgnrs_portfolio.notna() &
+	(orgnrs_portfolio.str.len() == 10) &
+	(
+		((orgnrs_portfolio_prefix2 >= 20) & (orgnrs_portfolio_prefix2 <= 26)) |      # public sector
+		((orgnrs_portfolio_prefix3 >= 501) & (orgnrs_portfolio_prefix3 <= 519))       # banks/financials
+	) &
+	(third_fourth_digits_portfolio > 12)
+)
+
+# Filtering out rows connected to Circle K, the public sector, banks, financial institutions,
+# foreign branches, foreign companies, and empty orgnrs.
+inclusion_rows_all_monitored_df = all_monitored_customers_cleared_df[
+	~(
+		all_monitored_customers_cleared_df['Namn'].str.contains(
+			r"STATOIL|\bCIRCLE\b|CIRCLEK|\bINGO\b|\bKOMMUN\b|REGION|MYNDIGHET|BANK|\bSEB\b|\bOY\b",
+			case=False,
+			na=False
+		)
+		| all_monitored_customers_cleared_df['Org/Personnummer'].isna()
+		| all_monitored_customers_cleared_df['Org/Personnummer'].isin([
+			'5560006834',
+			'0000000000',
+			''
+		])
+		| kommun_region_mask_portfolio
+	)
+]
+
+# Exclusion rows (everything filtered out)
+exclusion_rows_all_monitored_df = all_monitored_customers_cleared_df[
+	(
+		all_monitored_customers_cleared_df['Namn'].str.contains(
+			r"STATOIL|\bCIRCLE\b|CIRCLEK|\bINGO\b|\bKOMMUN\b|REGION|MYNDIGHET|BANK|\bSEB\b|\bOY\b",
+			case=False,
+			na=False
+		)
+		| all_monitored_customers_cleared_df['Org/Personnummer'].isna()
+		| all_monitored_customers_cleared_df['Org/Personnummer'].isin([
+			'5560006834',
+			'0000000000',
+			''
+		])
+		| kommun_region_mask_portfolio
+	)
+]
+
+len(all_monitored_customers_cleared_df)
+len(inclusion_rows_all_monitored_df)
+len(exclusion_rows_all_monitored_df)
+len(all_monitored_customers_cleared_df) - len(inclusion_rows_all_monitored_df)
+len(all_monitored_customers_cleared_df) - len(inclusion_rows_all_monitored_df) == len(exclusion_rows_all_monitored_df)
+
+list(enumerate(inclusion_rows_all_monitored_df.columns))
+
+# Removing dashes from non-numeric risk classes, replacing commas with dots
+# and convert it to float.
+inclusion_rows_all_monitored_df['UC_Riskprognos'] = (
+	inclusion_rows_all_monitored_df['UC_Riskprognos']
+	.replace('-', None)                      # turn '-' into NaN
+	.str.replace(',', '.', regex=False)     # replace comma with dot
+	.astype(float)                          # convert to float
+)
+
+# Creating a new column with the current risk class.
+inclusion_rows_all_monitored_df['UC_Riskklass_Current'] = (
+	inclusion_rows_all_monitored_df['UC_Riskklass']
+	.str.replace(r'\(.*?\)', '', regex=True)   # remove parentheses
+	.str.strip()                               # clean spaces
+)
+
+# Creating another column where all the non numerical risk classes are filtered out
+# This is necessary for analyzing the average risk class by industry. Though, it could
+# be better to only run it on UC_Riskprognos. I might use this variable later.
+inclusion_rows_all_monitored_df['UC_Riskklass_Numerical_Current'] = pd.to_numeric(
+	inclusion_rows_all_monitored_df['UC_Riskklass_Current'],
+	errors='coerce'
+)
+
+# Creating another column where the numerical risk classes are numerical or other. 
+# This will be necessary later while running percentage risk class analysis.
+inclusion_rows_all_monitored_df['UC_Riskklass_Grouped'] = (
+	inclusion_rows_all_monitored_df['UC_Riskklass_Current']
+	.where(inclusion_rows_all_monitored_df['UC_Riskklass_Current'].isin(['1','2','3','4','5']), 'Non-Numeric')
+)
+
+# Turn 'nan' as a string into an empty cell in every single column.
+inclusion_rows_all_monitored_df = inclusion_rows_all_monitored_df.replace('nan', '')
+
+
+list(enumerate(inclusion_rows_all_monitored_df.columns))
+inclusion_rows_all_monitored_df['UC_Riskklass_Grouped'].drop_duplicates()
+
+len(inclusion_rows_all_monitored_df['Bransch'].unique())
+
+"""
+Downloadng SNI codes to properly convert the ones with SNI into readable industries. 
+The function above imports the SNI code Excel file, deletes the top row, set the second row
+as column names, strips whitespace, selects relevant columns, renames them to SNI and Bransch,
+ads SNI to each numerical row, and last returns the dictionary and a unified data frame with 
+all of them sorted.
+"""
+
+def clean_sni_sheets(sni_dict):
+	cleaned = {}
+
+	for sheet_name, df in sni_dict.items():
+
+		# Step 1: drop first row
+		df = df.iloc[1:].copy()
+
+		# Step 2: set header
+		df.columns = df.iloc[0]
+
+		# Step 3: remove header row from data
+		df = df.iloc[1:].reset_index(drop=True)
+
+		# Step 4: strip whitespace
+		df.columns = df.columns.astype(str).str.strip()
+
+		# Step 5: select relevant columns per sheet type
+		if 'Avdelning' in df.columns:
+			df = df[['Avdelning', 'Benämning']]
+		elif 'Huvudgrupp' in df.columns:
+			df = df[['Huvudgrupp', 'Benämning']]
+		elif 'Grupp' in df.columns:
+			df = df[['Grupp', 'Benämning']]
+		elif 'Undergrupp' in df.columns:
+			df = df[['Undergrupp', 'Benämning']]
+		elif 'Detaljgrupp' in df.columns:
+			df = df[['Detaljgrupp', 'Benämning']]
+
+		# Step 6: rename final output columns
+		df.columns = ['SNI', 'Bransch']
+
+		cleaned[sheet_name] = df
+
+	# Step 7: merge all sheets into one dataframe
+	all_df = pd.concat(cleaned.values(), ignore_index=True)
+
+	# Ensure string type
+	all_df['SNI'] = all_df['SNI'].astype(str)
+
+	# Add SNI prefix (avoid double prefix if already exists)
+	all_df['SNI'] = all_df['SNI'].where(
+		all_df['SNI'].str.startswith('SNI'),
+		'SNI' + all_df['SNI']
+	)
+
+	# Step 8: sort by SNI "depth" (shorter = higher level like Avdelning)
+	all_df = all_df.assign(_len=all_df['SNI'].str.len())
+	all_df = all_df.sort_values('_len').drop(columns='_len').reset_index(drop=True)
+
+	return cleaned, all_df
+
+all_SNI_codes_SCB_dict = read_excel_any_many_sheets(
+	"C:/Users/OLLESC/Downloads/SNI2007 SCB.xlsx"
+)
+
+cleaned_dict, all_SNI_codes_SCB_df = clean_sni_sheets(all_SNI_codes_SCB_dict)
+
+# Now all_SNI_codes_SCB_df is used to map all the SNI codes. First turning into
+# a dictionary with keys and values. 
+sni_dict = dict(zip(all_SNI_codes_SCB_df['SNI'], all_SNI_codes_SCB_df['Bransch']))
+# Replacing SNI codes with industries.
+inclusion_rows_all_monitored_df['Bransch'] = (
+	inclusion_rows_all_monitored_df['Bransch']
+	.replace(sni_dict)
+)
+
+industries = sorted(inclusion_rows_all_monitored_df['Bransch'].unique())
+industries_df = pd.DataFrame(industries, columns=['Bransch'])
+# =============================================================================
+# industries_df.to_excel("C:/Users/OLLESC/Downloads/Industries.xlsx", index=False)
+# =============================================================================
+
+# Some are stated as SNI-codes. They need to be spelled out.
+sni_map = {
+	'SNI62010': 'Dataprogrammering',
+	'SNI62020': 'Datakonsultverksamhet',
+	'SNI45110': 'Handel med personbilar och lätta motorfordon',
+	'SNI45201': 'Allmän service och reparation av motorfordon',
+	'SNI45310': 'Partihandel med reservdelar och tillbehör till motorfordon',
+	'SNI45400': 'Handel med och service av motorcyklar',
+	'SNI47911': 'Detaljhandel via internet eller postorder med brett sortiment',
+	'SNI47191': 'Livsmedelshandel med brett sortiment',
+	'SNI70220': 'Konsultverksamhet avseende företags organisation',
+	'SNI81210': 'Lokalvård'
+}
+
+len(inclusion_rows_all_monitored_df['Bransch'].unique())
+industries = sorted(inclusion_rows_all_monitored_df['Bransch'].unique())
+
+# Industries by category. I started with a broad definition and then have manually
+# gone through which ones that should be kept.
+industry_transportation = [
+#	'Ambulanstransporter och ambulanssjukvård',
+	'Bud- och kurirverksamhet',
+	'Diverse övrig landtransport av passagerare',
+	'Diverse övrig transportmedelstillverkning',
+	'Flyttjänster',
+#	'Hamngodshantering',
+#	'Icke reguljär lufttransport av gods',
+#	'Icke reguljär lufttransport av passagerare',
+#	'Icke reguljär sjötrafik på inre vattenvägar av gods',
+#	'Icke reguljär sjötrafik på inre vattenvägar av passagerare',
+#	'Icke reguljär sjötrafik över hav och kust av gods',
+#	'Icke reguljär sjötrafik över hav och kust av passagerare',
+	'Icke-reguljär vägtransport, passagerartrafik',
+#	'Järnvägstransport, godstrafik',
+#	'Järnvägstransport, passagerartrafik',
+#	'Kabinbanor och skidliftar, passagerartrafik',
+	'Linjebussverksamhet',
+	'Logistikverksamhet',
+#	'Magasinering och varulagring',
+	'Passagerartrafik på beställning, fordon med förare',
+#	'Postbefordran via nationella posten',
+#	'Reguljär lufttransport av gods',
+#	'Reguljär lufttransport av passagerare',
+#	'Reguljär sjötrafik på inre vattenvägar av passagerare',
+#	'Reguljär sjötrafik över hav och kust av gods',
+#	'Reguljär sjötrafik över hav och kust av passagerare',
+	'Reguljär vägtransport, passagerartrafik',
+	'Stödverksamhet avseende landtransport',
+#	'Stödverksamhet avseende lufttransport',
+#	'Stödverksamhet avseende sjötransport',
+	'Stödverksamhet avseende transport',
+	'Transport i rörsystem',
+	'Vägtransport, godstrafik',
+	'Övrig kollektivtrafik',
+	'Övrig godshantering',
+	'Övriga stödtjänster till transport'
+]
+industry_construction = [
+#	'Allmännyttiga anläggningsarbeten för värme, vatten och avlopp',
+	'Andra bygginstallationer',
+#	'Anläggning av broar och tunnlar',
+#	'Anläggning av järnvägar och tunnelbanor',
+#	'Anläggning av vägar och motorvägar',
+	'Anläggningsarbeten för el',
+	'Anläggningsarbeten för el och telekommunikation',
+	'Anläggningsarbeten för telekommunikation',
+	'Byggande av bostadshus och andra byggnader',
+#	'Byggande av civila fartyg och flytande materiel',
+#	'Byggande av fritidsbåtar',
+	'Byggnadssnickeriarbeten',
+	'Diverse övriga anläggningsarbeten',
+	'Elinstallationer',
+	'Glasmästeriarbeten',
+	'Golv- och väggbeläggningsarbeten',
+	'Huggning, formning och slutlig bearbetning av sten för byggnadsändamål',
+#	'Installation av industrimaskiner och -utrustning',
+	'Installation av isolering',
+#	'Kyl- och frysinstallationsarbeten',
+	'Mark- och grundarbeten',
+	'Murarbeten',
+	'Måleriarbeten',
+#	'Puts-, fasad- och stuckatörsarbeten',
+#	'Rivning av hus och byggnader',
+#	'Sanering, efterbehandling av jord och vatten samt annan verksamhet för föroreningsbekämpning',
+	'Specialiserad bygg- och anläggningsverksamhet i samband med anläggningsarbeten',
+	'Takarbeten av andra material än plåt',
+	'Takarbeten av plåt',
+	'Utformning av byggprojekt',
+#	'Vattenbyggnad',
+	'Ventilationsarbeten',
+	'Värme- och sanitetsarbeten',
+	# Manually added in construction.
+	'Annan övrig specialiserad bygg- och anläggningsverksamhet',
+	'Byggplastvarutillverkning',
+	'Detaljhandel med virke och byggvaror',
+	'Hyvling av trä',
+	'Metallegoarbeten',
+	'Partihandel med järnhandelsvaror',
+	'Provisionshandel med virke och byggmaterial',
+	'Tillverkning av dörrar av trä',
+	'Tillverkning av fibercementvaror',
+	'Tillverkning av gipsvaror för byggändamål',
+	'Tillverkning av keramiska golv- och väggplattor',
+	'Tillverkning av diskbänkar, sanitetsgods m.m. av metall för byggändamål',
+	'Tillverkning av övriga byggnads- och inredningssnickerier',
+	'Träimpregnering',
+	'Uthyrning av bygg- och anläggningsmaskiner med förare',
+	'Uthyrning och leasing av bygg- och anläggningsmaskiner',
+	'Övrig trävarutillverkning'
+]
+industry_restaurants = [
+#	'Ambulerande och tillfällig handel med livsmedel',
+#	'Annan logiverksamhet',
+	'Cateringverksamhet för transportsektorn',
+	'Cateringverksamhet vid enskilda evenemang',
+#	'Centralköksverksamhet för sjukhus, skolor, omsorgs- och andra institutioner',
+#	'Centralköksverksamhet för skolor, omsorgs- och andra institutioner',
+#	'Drift av personalmatsalar',
+	'Hotellverksamhet med restaurangrörelse',
+#	'Hotellverksamhet utan restaurangrörelse',
+#	'Livsmedelshandel med brett sortiment',
+#	'Livsmedelshandel med brett sortiment, ej varuhus eller stormarknad',
+	'Mobil restaurangverksamhet',
+#	'Osttillverkning',
+	'Restaurangverksamhet',
+	'Restaurangverksamhet och mobil restaurangverksamhet',
+#	'Stug- och rumsuthyrning',
+#	'Varuhus- och stormarknadshandel, mest livsmedel, drycker och tobak',
+	'Övrig cateringverksamhet',
+	'Övrig centralköks- och cateringverksamhet',
+	'Förmedling avseende passagerartransport' # Manually added.
+]
+
+# Creating a new column with boolean categories for each industry. If it does not
+# match any industry, the value is 'Other Industry'.
+def map_industry(bransch):
+	if bransch in industry_transportation:
+		return 'Transp'
+	elif bransch in industry_construction:
+		return 'Constr'
+	elif bransch in industry_restaurants:
+		return 'Restaur'
+	else:
+		return 'Other Industry'
+inclusion_rows_all_monitored_df.insert(
+	0,
+	'Ind_Category',
+	inclusion_rows_all_monitored_df['Bransch'].apply(map_industry)
+)
+
+# Number of customers by sector.
+len(inclusion_rows_all_monitored_df[inclusion_rows_all_monitored_df['Ind_Category'] == 'Transp'])
+len(inclusion_rows_all_monitored_df[inclusion_rows_all_monitored_df['Ind_Category'] == 'Constr'])
+len(inclusion_rows_all_monitored_df[inclusion_rows_all_monitored_df['Ind_Category'] == 'Restaur'])
+len(inclusion_rows_all_monitored_df[inclusion_rows_all_monitored_df['Ind_Category'] == 'Other Industry'])
+
+# The rows below are filtered out to get fewer variables.
+
+# Transportation
+transport_df = inclusion_rows_all_monitored_df[
+	inclusion_rows_all_monitored_df['Ind_Category'] == 'Transp'
+]
+ranked_count_transport = transport_df['Bransch'].value_counts()
+
+# Ranked number of customers by construction industry.
+construction_df = inclusion_rows_all_monitored_df[
+	inclusion_rows_all_monitored_df['Ind_Category'] == 'Constr'
+]
+ranked_count_construction = construction_df['Bransch'].value_counts()
+
+# Restaurants
+restaurant_df = inclusion_rows_all_monitored_df[
+	inclusion_rows_all_monitored_df['Ind_Category'] == 'Restaur'
+]
+ranked_count_restaurant = restaurant_df['Bransch'].value_counts()
+
+# Other
+other_df = inclusion_rows_all_monitored_df[
+	inclusion_rows_all_monitored_df['Ind_Category'] == 'Other Industry'
+]
+ranked_count_other = other_df['Bransch'].value_counts()
+
+# Quality check. All must be True every industry has been including while ranking them by number.
+int(ranked_count_transport.sum()) == len(transport_df)
+int(ranked_count_construction.sum()) == len(construction_df)
+int(ranked_count_restaurant.sum()) == len(restaurant_df)
+int(ranked_count_other.sum()) == len(other_df)
+
+"""
+Uploading every P4 with code 44. I need to look up what +44 and -44 means.
+For the machine learning project I need to get the latest invoice count number for the index. I need to
+divide the number of P4s by number of invoices. Tenure in years is not necessary as some companies have
+not during some time periods. I also need to figure out if I can divide the invoice count by additional
+variavbles while creating the index.
+I can also run bankruptcy as the dependent variable. Though, there might be bias if bankruptcies get OPP
+and are not visible in Spektra. I should also use categorical binary variables with industry categories.
+I could possibly create several more and even find other high risk industries in this very profitability
+project.
+I also wonder if I can use the UC risk prognosis somehow as a dependent or independent variable. Though, I
+might only use it for a post-hoc comparison between my model results and the UC model. However, the UC model
+is based upon the risk of a company not being able to pay, which just only might only be bankruptcy.
+"""
+
+	
+
+
+all_p4s_df = read_excel_any("C:/Users/OLLESC/Downloads/IDEA0009898 SE P4 Data - 44 TRANS TYPES.xlsx")
+all_p4s_df = all_p4s_df.astype(str) # Converting entire data frame to string.
+all_p4s_df = strip_all_columns(all_p4s_df) # Cleaning all rows.
+
+all_p4s_cleared_df = all_p4s_df
+
+# Only including companies just to be sure.
+all_p4s_cleared_df = all_p4s_cleared_df[
+	all_p4s_cleared_df['PARTNER_TP'] == 'FIR'
+]
+
+# Filtering relevant columns.
+all_p4s_cleared_df = all_p4s_cleared_df.loc[:, [
+	'ORGANISATIONSNR',
+	'PARTNER_ID',
+	'HUVUDNAMN',
+	'SPERRE_KD',
+	'KONTO_ID',
+	'KONTO_ID',
+	'SÄKERHET',
+	'LIMIT_GR',
+	'LIMIT_VAR',
+	'TR',
+	'DATUM',
+	'FÖRFALL_SALDO'
+]]
+
+list(enumerate(all_p4s_df.columns))
+list(enumerate(all_p4s_cleared_df.columns))
+
+def filter_blocks(data_frame):
+	
+	# =========================
+	# 1. PREP ORGNR COMPONENTS
+	# =========================
+	orgnrs_blocks = data_frame['ORGANISATIONSNR'].astype(str).str.strip()
+	
+	orgnrs_blocks_prefix2 = pd.to_numeric(
+		orgnrs_blocks.str[:2], errors='coerce'
+	).astype('Int64')
+	
+	orgnrs_blocks_prefix3 = pd.to_numeric(
+		orgnrs_blocks.str[:3], errors='coerce'
+	).astype('Int64')
+	
+	third_fourth_digits_blocks = pd.to_numeric(
+		orgnrs_blocks.str[2:4], errors='coerce'
+	).astype('Int64')
+	
+	
+	# =========================
+	# 2. BUILD MASK
+	# =========================
+	kommun_region_mask_blocks = (
+		orgnrs_blocks.notna() &
+		(orgnrs_blocks.str.len() == 10) &
+		(
+			((orgnrs_blocks_prefix2 >= 20) & (orgnrs_blocks_prefix2 <= 26)) |
+			((orgnrs_blocks_prefix3 >= 501) & (orgnrs_blocks_prefix3 <= 519))
+		) &
+		(third_fourth_digits_blocks > 12)
+	)
+	
+	
+	# =========================
+	# 3. NAME FILTER
+	# =========================
+	name_filter = data_frame['PARTNER_ID'].str.contains(
+		r"STATOIL|\bCIRCLE\b|CIRCLEK|\bINGO\b|\bKOMMUN\b|REGION|MYNDIGHET|BANK|\bSEB\b|\bOY\b",
+		case=False,
+		na=False
+	)
+	
+	
+	# =========================
+	# 4. OTHER FILTERS
+	# =========================
+	invalid_orgnr_filter = (
+		data_frame['ORGANISATIONSNR'].isna() |
+		data_frame['ORGANISATIONSNR'].isin([
+			'5560006834',
+			'0000000000',
+			''
+		])
+	)
+	
+	starts_with_filter = data_frame['PARTNER_ID'].str.startswith('..')
+	
+	# =========================
+	# 5. COMBINE FILTERS
+	# =========================
+	exclusion_mask = (
+		name_filter |
+		starts_with_filter |
+		invalid_orgnr_filter |
+		kommun_region_mask_blocks
+	)
+	
+	
+	# =========================
+	# 6. SPLIT DATAFRAMES
+	# =========================
+	inclusion_rows_df = data_frame[~exclusion_mask].copy()
+	exclusion_rows_df = data_frame[exclusion_mask].copy()
+	
+	# =========================
+	# 7. RETURN
+	# =========================
+	return inclusion_rows_df, exclusion_rows_df
+
+inclusion_rows_all_p4s, exclusion_rows_all_p4s_df = filter_blocks(all_p4s_cleared_df)
+
+len(all_p4s_cleared_df)
+len(inclusion_rows_all_p4s)
+len(exclusion_rows_all_p4s_df)
+len(all_p4s_cleared_df) - len(inclusion_rows_all_p4s)
+len(all_p4s_cleared_df) - len(inclusion_rows_all_p4s) == len(exclusion_rows_all_p4s_df)
+
+" Merger with the AIS one as main. "
+
+# Renaming PID column names for the merger.
+inclusion_rows_all_monitored_df = inclusion_rows_all_monitored_df.rename(
+	columns={"Org/Personnummer": "ORGNR_All_Monitored"}
+)
+inclusion_rows_all_p4s  = inclusion_rows_all_p4s.rename(
+	columns={"REG_NUMBER": "ORGNR_Open_Items"}
+)
+
+# Removing dashes in the orgnr for the merger.
+inclusion_rows_all_monitored_df['ORGNR_All_Monitored'] = (
+	inclusion_rows_all_monitored_df['ORGNR_All_Monitored']
+	.str.replace('-', '', regex=False))
+
+list(enumerate(inclusion_rows_all_p4s.columns))
+list(enumerate(inclusion_rows_all_monitored_df.columns))
+
+merged_inclusion_rows_all_p4s = inclusion_rows_all_p4s.merge(
+	inclusion_rows_all_monitored_df[
+		[
+			"ORGNR_All_Monitored",
+			"Bransch",
+			"Ind_Category",
+			"UC_Riskprognos",
+			"UC_Riskklass",
+			"UC_Riskklass_Current",
+			"UC_Riskklass_Numerical_Current",
+			"UC_Riskklass_Grouped"
+		]
+	],
+	left_on="ORGANISATIONSNR",
+	right_on="ORGNR_All_Monitored",
+	how="left"
+)
+merged_inclusion_rows_all_p4s
+
+list(enumerate(merged_inclusion_rows_all_p4s.columns))
+
+# Quality check. Some did not merge in Bransch and Ind_Category as they are
+# no longer monitored due to recent KON and OPP and possibly other blocks. 
+mask_invalid = (
+	merged_inclusion_rows_all_p4s['Bransch'].isna() |
+	(merged_inclusion_rows_all_p4s['Bransch'] == '') |
+	(merged_inclusion_rows_all_p4s['Bransch'].str.lower() == 'nan')
+)
+len(merged_inclusion_rows_all_p4s[mask_invalid])
+
+# Filtering out the rows with no industry.
+merged_P4_AIS_filtered_df = merged_inclusion_rows_all_p4s[~mask_invalid]
+
+# =============================================================================
+# # Removing dashes from non-numericw risk classes, replacing commas with dots
+# # and convert it to float.
+# merged_P4_AIS_filtered_df['UC_Riskprognos'] = (
+# 	merged_P4_AIS_filtered_df['UC_Riskprognos']
+# 	.replace('-', None)                      # turn '-' into NaN
+# 	.str.replace(',', '.', regex=False)     # replace comma with dot
+# 	.astype(float)                          # convert to float
+# )
+# 
+# # Creating a new column with the current risk class.
+# merged_P4_AIS_filtered_df['UC_Riskklass_Current'] = (
+# 	merged_P4_AIS_filtered_df['UC_Riskklass']
+# 	.str.replace(r'\(.*?\)', '', regex=True)   # remove parentheses
+# 	.str.strip()                               # clean spaces
+# )
+# 
+# # Creating another column where all the non numerical risk classes are filtered out
+# # This is necessary for analyzing the average risk class by industry. Though, it could
+# # be better to only run it on UC_Riskprognos. I might use this variable later.
+# merged_P4_AIS_filtered_df['UC_Riskklass_Numerical_Current'] = pd.to_numeric(
+# 	merged_P4_AIS_filtered_df['UC_Riskklass_Current'],
+# 	errors='coerce'
+# )
+# =============================================================================
+
+# Cleaning the data frame again as a safety measure.
+merged_P4_AIS_filtered_df = strip_all_columns(merged_P4_AIS_filtered_df)
+
+list(enumerate(merged_P4_AIS_filtered_df.columns))
+
+" Analysis. Average risk prognosis by industry in customers with P4s. Only numerical risk classes."
+
+# Average risk in monitored P4s only.
+avg_riskprognos_by_industry_P4s = (
+	merged_P4_AIS_filtered_df
+	.groupby('Ind_Category')['UC_Riskprognos'] # Categorization.
+	.mean() # Average.
+	.reset_index(name='Avg_UC_Riskprognos')
+	.round(2) # Two decimals.
+	.sort_values('Avg_UC_Riskprognos', ascending=False) # Decending by Average risk level.
+)
+avg_riskprognos_by_industry_P4s
+
+# Average risk in the entire monitored portfolio.
+avg_riskprognos_by_industry_all_monitored = (
+	inclusion_rows_all_monitored_df
+	.groupby('Ind_Category')['UC_Riskprognos'] # Categorization.
+	.mean() # Average.
+	.reset_index(name='Avg_UC_Riskprognos')
+	.round(2) # Two decimals.
+	.sort_values('Avg_UC_Riskprognos', ascending=False) # Decending by Average risk level.
+)
+
+list(enumerate(inclusion_rows_all_monitored_df.columns))
+
+# Quality check. The orgnrs and industries shall be unique.
+len(inclusion_rows_all_monitored_df)
+len(inclusion_rows_all_monitored_df['ORGNR_All_Monitored'])
+len(inclusion_rows_all_monitored_df['Bransch'])
+
+list(enumerate(inclusion_rows_all_monitored_df.columns))
+
+" Analysis. Risk class shares by industry."
+
+df = inclusion_rows_all_monitored_df
+allowed_classes = ['1']
+normalize_within_filter=True
+sort_col=None
+
+# compute_risk_share_by_industry(merged_P4_AIS_filtered_df, ['1'], normalize_within_filter=False)
+
+def compute_risk_share_by_industry(
+	df,
+	allowed_classes=None,
+	normalize_within_filter=True,
+	sort_col=None,
+	group_col='Ind_Category'
+):
+	
+	# Sanitize allowed classes
+	if allowed_classes:
+		allowed_classes = [
+			c for c in allowed_classes
+			if str(c) in {'1', '2', '3', '4', '5', 'Non-Numeric'}
+		]
+	else:
+		allowed_classes = None
+
+	analysis_df = df.copy()
+
+	if allowed_classes is not None:
+		analysis_df = analysis_df[
+			analysis_df['UC_Riskklass_Grouped'].isin(allowed_classes)
+		].copy()
+
+	# Total per group
+	full_counts = (
+		analysis_df
+		.groupby(group_col)
+		.size()
+		.reset_index(name='Total')
+	)
+
+	# Risk distribution
+	risk_share = (
+		analysis_df
+		.groupby([group_col, 'UC_Riskklass_Grouped'])
+		.size()
+		.reset_index(name='Count')
+	)
+
+	risk_share = risk_share.merge(full_counts, on=group_col, how='left')
+
+	# Denominator
+	if normalize_within_filter:
+		denom = risk_share.groupby(group_col)['Count'].transform('sum')
+	else:
+		denom = risk_share['Total']
+
+	risk_share['Pct'] = risk_share['Count'] / denom * 100
+
+	# Pivot ONLY percentages
+	risk_share_wide = (
+		risk_share
+		.pivot(index=group_col, columns='UC_Riskklass_Grouped', values='Pct')
+		.fillna(0)
+		.round(1)
+		.reset_index()
+	)
+
+	# Sort logic
+	if sort_col is None:
+		available_cols = set(risk_share_wide.columns)
+	
+		# extract numeric risk columns that actually exist in the result
+		numeric_cols = [
+			col for col in available_cols
+			if str(col).isdigit()
+		]
+	
+		if numeric_cols:
+			# pick lowest numeric risk class present
+			sort_col = str(min(map(int, numeric_cols)))
+		else:
+			# fallback if only Non-Numeric exists
+			sort_col = 'Non-Numeric'
+
+	if sort_col not in risk_share_wide.columns:
+		sort_col = risk_share_wide.columns[1]
+
+	risk_share_wide = risk_share_wide.sort_values(sort_col, ascending=False)
+
+	# Add totals only
+	risk_share_wide = risk_share_wide.merge(full_counts, on=group_col, how='left')
+
+	# Rounding totals
+	risk_share_wide['Total'] = risk_share_wide['Total'].apply(
+		lambda x: x if pd.isna(x)
+		else int(x) if x < 1000
+		else round(x, -2) if x >= 10000
+		else round(x, -1)
+	)
+
+	return risk_share_wide
+
+" I need to verify some of these figures within the Excel document. "
+
+# When normalize_within_filter=False, the figures are not relative to each other. 
+# When True, they are calculated individually against the full data frame.
+# With sort_col in the function, you can individually choose which column to sort on if needed,
+# but otherwise it sorts on the highest included risk class, and only on Non-Numeric if only 
+# this one is included.
+
+" I must also ad another column being a count of them. "
+
+# The P4 AIS data frame.
+compute_risk_share_by_industry(merged_P4_AIS_filtered_df)
+compute_risk_share_by_industry(merged_P4_AIS_filtered_df,['1','2','3','4','5'])
+compute_risk_share_by_industry(merged_P4_AIS_filtered_df, ['1'], normalize_within_filter=False)
+compute_risk_share_by_industry(merged_P4_AIS_filtered_df, ['2','3'], normalize_within_filter=False)
+compute_risk_share_by_industry(merged_P4_AIS_filtered_df, ['Non-Numeric'], normalize_within_filter=False)
+
+# The entire portfolio data frame.
+compute_risk_share_by_industry(inclusion_rows_all_monitored_df)
+compute_risk_share_by_industry(inclusion_rows_all_monitored_df,['1','2','3','4','5'])
+compute_risk_share_by_industry(inclusion_rows_all_monitored_df, ['1'], normalize_within_filter=False)
+compute_risk_share_by_industry(inclusion_rows_all_monitored_df, ['2','3'], normalize_within_filter=False)
+compute_risk_share_by_industry(inclusion_rows_all_monitored_df, ['Non-Numeric'], normalize_within_filter=False)
+
+list(enumerate(merged_P4_AIS_filtered_df.columns))
+list(enumerate(inclusion_rows_all_monitored_df.columns))
+
+# Running the same function as above with with industries instead of risk classes with a cut-off of 10 occurrences.
+ranked_bransch = merged_P4_AIS_filtered_df['Bransch'].value_counts()
+ranked_cutoff_bransch = ranked_bransch[ranked_bransch >= 10]
+filtered_df = merged_P4_AIS_filtered_df[
+	merged_P4_AIS_filtered_df['Bransch'].isin(
+		merged_P4_AIS_filtered_df['Bransch'].value_counts().loc[lambda x: x >= 10].index
+	)
+]
+compute_risk_share_by_industry(filtered_df, group_col='Bransch')
+
+filtered_df['Bransch'].drop_duplicates()
+
+# Number of accounts in the entire monitored portfolio ranked as descending.
+ranked_count_all = inclusion_rows_all_monitored_df['Bransch'].value_counts()
+
+"""
+I need to make one by the number of P2s by company. I will get a large data set thay way.
+that way.
+I need to get a data set other than open items with P4s. It can be similar to the one below 
+but contain a different column with P4s. It should also be every single P4 ever. The dataset
+in open items is limited and that part needs to be replaced.
+"""
+
+# I cannot import it through the regular function as it strips orgnrs of zeros on the left.
+p2s_df = pd.read_excel(
+	"C:/Users/OLLESC/Downloads/IDEA0009575 P2s Organized 2026-02-03.xlsx",
+	engine="openpyxl",
+	dtype={"ORGANISATIONSNR": str}
+)
+p2s_df = p2s_df.astype(str) # Converting entire data frame to string.
+p2s_df = strip_all_columns(p2s_df) # Cleaning all rows.
+
+p2s_cleared_df = p2s_df
+
+# Renaming column names.
+p2s_cleared_df = p2s_cleared_df.rename(columns={
+	'ORGANISATIONSNR': 'orgnr_P2s',
+	'PÅM_ST_count': 'P2s_count'
+})
+
+list(enumerate(p2s_cleared_df.columns))
+
+# Merging P2s onto the all monitored customers dataframe.
+inclusion_rows_all_monitored_df = inclusion_rows_all_monitored_df.merge(
+	p2s_cleared_df[
+		[
+			"orgnr_P2s",
+			"P2s_count"
+		]
+	],
+	left_on="ORGNR_All_Monitored",
+	right_on="orgnr_P2s",
+	how="left"
+)
+
+inclusion_rows_all_monitored_df["P2s_count"] = (
+	pd.to_numeric(inclusion_rows_all_monitored_df["P2s_count"], errors="coerce")
+	.fillna(0)
+	.astype(int)
+)
+inclusion_rows_all_monitored_df["LIMIT"] = (
+	pd.to_numeric(inclusion_rows_all_monitored_df["LIMIT"], errors="coerce")
+	.fillna(0)
+)
+inclusion_rows_all_monitored_df["EXPOSER"] = (
+	pd.to_numeric(inclusion_rows_all_monitored_df["EXPOSER"], errors="coerce")
+	.fillna(0)
+)
+
+list(enumerate(inclusion_rows_all_monitored_df.columns))
+
+"""
+I need to figure out how to size and tenure adjust the stats with some sort of index.
+Otherwise outliers which are large companies will skew the data badly. Also, I need to 
+figure out how long we have recordings of P2s for and take the oldest one. If a customer
+is that older than that, then the tenure column will have whichever maximal value. If the 
+tenure is lower it will be a lower value. But many customers will have an identical capped
+out tenures. At first I create a column for frequency. Then I must somehow divide how much
+they fuel/have fueled with this frequency variable. I can even use number of cards as the 
+size variable instead of exposure or limit.
+
+I also need to filter out the public sector and Circle K. That can be performed further up.
+I should also look at ENKs and non-ENKs.
+
+Associations, handelsbolag and föreningar can be analyzed with the average risk class for example.
+"""
+
+" Analysis based on the age of stock companies. "
+
+# The data set is an estimation on the creation date of stock companies by a 6 digit prefix.
+prefix_date_df = read_excel_any("C:/Users/OLLESC/Downloads/Chatgpt generated 5590_5595_interpolated_prefixes.xlsx")
+prefix_date_df = prefix_date_df.astype(str) # Converting entire data frame to string.
+prefix_date_df = strip_all_columns(prefix_date_df) # Cleaning all rows.
+
+prefix_date_cleared_df = prefix_date_df
+
+# Filtering relevant columns.
+prefix_date_cleared_df = prefix_date_cleared_df.loc[:, [
+	'Prefix_6digit',
+	'Estimated_YearMonth'
+]]
+
+# Creating a new column with just the year.
+prefix_date_cleared_df["Prefix_Year"] = (
+	prefix_date_cleared_df["Estimated_YearMonth"].str[:4]
+)
+
+list(enumerate(prefix_date_cleared_df.columns))
+
+Post15_AB_df = inclusion_rows_all_monitored_df[
+	inclusion_rows_all_monitored_df["ORGNR_All_Monitored"]
+	.astype(str)
+	.str.startswith("559")
+]
+
+# Cleaning the orgnr and creating a new column with the 6 digit prefix.
+Post15_AB_df["ORGNR_clean"] = (
+	Post15_AB_df["ORGNR_All_Monitored"]
+	.astype(str)
+	.str.replace("-", "")
+	.str.strip()
+)
+Post15_AB_df["Prefix6"] = Post15_AB_df["ORGNR_clean"].str[:6]
+# Merging the estimated age of post 2015 stock companies onto Post15_AB_df. 
+Post15_AB_df = Post15_AB_df.merge(
+	prefix_date_cleared_df[[
+		"Prefix_6digit",
+		"Estimated_YearMonth",
+		"Prefix_Year"
+	]],
+	left_on="Prefix6",
+	right_on="Prefix_6digit",
+	how="left"
+)
+
+list(enumerate(Post15_AB_df.columns))
+
+" Creating a graph of UC Riskprognos by interpolated year. "
+
+numeric_only_post15_AB_df = Post15_AB_df[
+	Post15_AB_df["UC_Riskklass_Numerical_Current"].isin([1, 2, 3, 4, 5])
+].copy()
+
+
+agg_df = (
+	numeric_only_post15_AB_df
+	.groupby("Prefix_Year")["UC_Riskprognos"]
+	.mean()
+	.reset_index()
+	.sort_values("Prefix_Year")
+)
+
+import matplotlib.pyplot as plt
+
+def plot_uc_risk_by_period(df, months=3, min_count=0):
+
+	filtered_df = df[
+		df["UC_Riskklass_Numerical_Current"].isin([1, 2, 3, 4, 5])
+	].copy()
+
+	filtered_df["UC_Riskprognos"] = pd.to_numeric(
+		filtered_df["UC_Riskprognos"],
+		errors="coerce"
+	)
+
+	filtered_df["Estimated_YearMonth_dt"] = pd.to_datetime(
+		filtered_df["Estimated_YearMonth"],
+		errors="coerce"
+	)
+
+	filtered_df = filtered_df.dropna(
+		subset=["Estimated_YearMonth_dt", "UC_Riskprognos"]
+	).copy()
+
+	base_date = filtered_df["Estimated_YearMonth_dt"].min()
+
+	filtered_df["month_index"] = (
+		(filtered_df["Estimated_YearMonth_dt"].dt.year - base_date.year) * 12
+		+ (filtered_df["Estimated_YearMonth_dt"].dt.month - base_date.month)
+	)
+
+	filtered_df["period_bucket"] = filtered_df["month_index"] // months
+
+	agg_df = (
+		filtered_df
+		.groupby("period_bucket")
+		.agg(
+			UC_Riskprognos_mean=("UC_Riskprognos", "mean"),
+			count=("UC_Riskprognos", "size")
+		)
+		.reset_index()
+		.sort_values("period_bucket")
+	)
+
+	# Always 12 months total
+	months_in_year = 12
+	
+	# Which month this bucket represents (1–12)
+	agg_df["month_num"] = (agg_df["period_bucket"] * months) % months_in_year + 1
+	
+	# Year offset (only matters if you want 2016, 2017, etc)
+	agg_df["year_offset"] = (agg_df["period_bucket"] * months) // months_in_year
+	
+	# Final label
+	agg_df["Period_Label"] = (
+		(base_date.year + agg_df["year_offset"]).astype(str)
+		+ "-"
+		+ agg_df["month_num"].astype(int).astype(str).str.zfill(2)
+	)
+
+	if min_count > 0:
+		agg_df = agg_df[agg_df["count"] >= min_count]
+
+	plt.figure()
+
+	plt.plot(
+		agg_df["Period_Label"],
+		agg_df["UC_Riskprognos_mean"]
+	)
+
+	# Show x-label only at the first period of each 12-month cycle
+	tick_positions = agg_df.index[agg_df["month_num"] == 1]
+	tick_labels = agg_df.loc[agg_df["month_num"] == 1, "Period_Label"]
+
+	plt.xticks(ticks=tick_positions, labels=tick_labels, rotation=45)
+	plt.ylim(bottom=0)
+
+	plt.xlabel("Company founding year.")
+	plt.ylabel("Avg UC Risk Prognos")
+	plt.title(f"UC Risk Prognos by {months}-Month Buckets")
+
+	plt.grid(True)
+
+	plt.show()
+
+	return agg_df
+
+plot_uc_risk_by_period(Post15_AB_df, months=1)   # monthly
+plot_uc_risk_by_period(Post15_AB_df, months=3)   # quarterly
+plot_uc_risk_by_period(Post15_AB_df, months=6)   # half-year
+plot_uc_risk_by_period(Post15_AB_df, months=12)  # yearly
+
+industry_filter = industry_restaurants
+risk_class=2
+df = Post15_AB_df
+months=3
+min_count=0
+
+
+
+
+def plot_risk_class_share_by_period(
+	df,
+	risk_class = 1,
+	months=3,
+	min_count=0,
+	industry_filter=None
+):
+
+	filtered_df = df.copy()
+
+	# Optional industry filter
+	if industry_filter is not None:
+		filtered_df = filtered_df[
+			filtered_df["Bransch"].isin(industry_filter)
+		].copy()
+
+	# Keep only valid risk classes
+	filtered_df = filtered_df[
+		filtered_df["UC_Riskklass_Numerical_Current"].isin([1, 2, 3, 4, 5])
+	].copy()
+
+	filtered_df["Estimated_YearMonth_dt"] = pd.to_datetime(
+		filtered_df["Estimated_YearMonth"],
+		errors="coerce"
+	)
+
+	filtered_df = filtered_df.dropna(
+		subset=["Estimated_YearMonth_dt", "UC_Riskklass_Numerical_Current"]
+	).copy()
+
+	base_date = filtered_df["Estimated_YearMonth_dt"].min()
+
+	filtered_df["month_index"] = (
+		(filtered_df["Estimated_YearMonth_dt"].dt.year - base_date.year) * 12
+		+ (filtered_df["Estimated_YearMonth_dt"].dt.month - base_date.month)
+	)
+
+	filtered_df["period_bucket"] = filtered_df["month_index"] // months
+
+	agg_df = (
+		filtered_df
+		.groupby("period_bucket")
+		.agg(
+			UC_Riskprognos_mean=("UC_Riskprognos", "mean"),
+			count=("UC_Riskprognos", "size")
+		)
+		.reset_index()
+		.sort_values("period_bucket")
+	)
+
+	# Always 12 months total
+	months_in_year = 12
+	
+	# Which month this bucket represents (1–12)
+	agg_df["month_num"] = (agg_df["period_bucket"] * months) % months_in_year + 1
+	
+	# Year offset (only matters if you want 2016, 2017, etc)
+	agg_df["year_offset"] = (agg_df["period_bucket"] * months) // months_in_year
+	
+	# Final label
+	agg_df["Period_Label"] = (
+		(base_date.year + agg_df["year_offset"]).astype(str)
+		+ "-"
+		+ agg_df["month_num"].astype(int).astype(str).str.zfill(2)
+	)
+
+	if min_count > 0:
+		agg_df = agg_df[agg_df["count"] >= min_count]
+
+	plt.figure()
+
+	plt.plot(
+		agg_df["Period_Label"],
+		agg_df["UC_Riskprognos_mean"]
+	)
+
+	# Show x-label only at the first period of each 12-month cycle
+	tick_positions = agg_df.index[agg_df["month_num"] == 1]
+	tick_labels = agg_df.loc[agg_df["month_num"] == 1, "Period_Label"]
+
+	plt.xticks(ticks=tick_positions, labels=tick_labels, rotation=45)
+	plt.ylim(bottom=0)
+
+	plt.xlabel("Company founding year.")
+	plt.ylabel(f"Risk class {risk_class} Share")
+	plt.title(f"UC Risk Prognos by {months}-Month Buckets")
+
+	plt.grid(True)
+
+	plt.show()
+
+	return agg_df
+
+# I need to improve this by making it possible to do risk class 3 and up for example.
+plot_risk_class_share_by_period(Post15_AB_df, risk_class=1, months=3)
+plot_risk_class_share_by_period(Post15_AB_df, risk_class=2, months=3)
+plot_risk_class_share_by_period(Post15_AB_df, risk_class=3, months=3)
+plot_risk_class_share_by_period(Post15_AB_df, risk_class=4, months=3)
+plot_risk_class_share_by_period(Post15_AB_df, risk_class=5, months=3)
+
+list(enumerate(Post15_AB_df.columns))
+
+""" 
+Companies created right before covid have the highest risk prognosis. Especially restaurants. 
+I need to get rid of the 3-Month Buckets part from every graph when I create the report so it is more readable.
+I need to filter out franchises earlier.
+"""
+
+# Plotting restaurants risk class 1 share.
+plot_risk_class_share_by_period(Post15_AB_df,risk_class=1,months=3,industry_filter=industry_restaurants)
+# Plotting construction risk class 1 share.
+plot_risk_class_share_by_period(Post15_AB_df,risk_class=1,months=3,industry_filter=industry_construction)
+# Plotting transportation risk class 1 share.
+plot_risk_class_share_by_period(Post15_AB_df,risk_class=1,months=3,industry_filter=industry_transportation)
+
