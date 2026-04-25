@@ -1,0 +1,41 @@
+
+# A calculation of the number of approved applications with a low credit limit of 500,000 SEK and above.
+=IF(
+    AND(
+        ISERROR(ROWS(
+            FILTER(
+                INDEX(INDIRECT("'" & $H$3 & "'!2:10000"),0,MATCH("Requested Credit Limit",INDIRECT("'" & $H$3 & "'!1:1"),0)),
+                (INDEX(INDIRECT("'" & $H$3 & "'!2:10000"),0,MATCH("Requested Credit Limit",INDIRECT("'" & $H$3 & "'!1:1"),0)) >= 500000) *
+                (INDEX(INDIRECT("'" & $H$3 & "'!2:10000"),0,MATCH("Requested Credit Limit",INDIRECT("'" & $H$3 & "'!1:1"),0)) <= 1000000000) *
+                (INDEX(INDIRECT("'" & $H$3 & "'!2:10000"),0,MATCH("SalesForce Category",INDIRECT("'" & $H$3 & "'!1:1"),0))="NEW CUST")
+            )
+        ))=TRUE,
+        INDEX(1:200, ROW(), COLUMN()+1) = 0
+    ),
+    0,
+    ROWS(
+        FILTER(
+            INDEX(INDIRECT("'" & $H$3 & "'!2:10000"),0,MATCH("Requested Credit Limit",INDIRECT("'" & $H$3 & "'!1:1"),0)),
+            (INDEX(INDIRECT("'" & $H$3 & "'!2:10000"),0,MATCH("Requested Credit Limit",INDIRECT("'" & $H$3 & "'!1:1"),0))>=500000) *
+            (INDEX(INDIRECT("'" & $H$3 & "'!2:10000"),0,MATCH("Requested Credit Limit",INDIRECT("'" & $H$3 & "'!1:1"),0))<=1000000000) *
+            (INDEX(INDIRECT("'" & $H$3 & "'!2:10000"),0,MATCH("SalesForce Category",INDIRECT("'" & $H$3 & "'!1:1"),0))="NEW CUST"),
+            0
+        )
+    )
+)
+
+# A calculation of the number of new applications in the first day of the month.
+=LET(
+    cnt, COUNTIFS(
+        INDIRECT("'" & $H$3 & "'!$H$2:H10000"), "NEW CUST",
+        INDIRECT(
+            "'" & $H$3 & "'!" &
+            SUBSTITUTE(ADDRESS(1, MATCH("New Application date", INDIRECT("'" & $H$3 & "'!1:1"), 0), 4), "1", "") &
+            "2:" &
+            SUBSTITUTE(ADDRESS(1, MATCH("New Application date", INDIRECT("'" & $H$3 & "'!1:1"), 0), 4), "1", "") &
+            "10000"
+        ),
+        DATE($H$2, $G$4, 2 - WEEKDAY(DATE($H$2, $G$4, 1), 2))
+    ),
+    IF(cnt=0,"",cnt)
+)
