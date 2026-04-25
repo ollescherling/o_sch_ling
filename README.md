@@ -11,5 +11,5 @@ _________________________________________________
 - RStudio University Project with the rendered output in https://rpubs.com/ollescherling/967270
 _________________________________________________
 
-The macros in the Excel KPI automation are a small selection of the macros I have created for the monthly KPIs, which reduces the time spent on this process by approximately half.
+- Excel KPI Automation contains a small selection of the macros I have created for the monthly KPIs, which reduces the time spent on this process by approximately half.
 _________________________________________________
