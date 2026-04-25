@@ -8,6 +8,8 @@ A small selection of my professional Python programming projects.
 - Identification of inactive customers is used for identifying inactive customers, of which a file thereafter is sent to a system team for a mass block.
 
 - The ongoing risk analysis project is used to compare risk levels between different industries when invoices are sent to debt collection.
+
+- Registration Organizational Number Standardizer is used to verify and standardize company registration numbers into the format which is applicable in the internal systems.
 _________________________________________________
 
 - RStudio University Project with the rendered output in https://rpubs.com/ollescherling/967270
