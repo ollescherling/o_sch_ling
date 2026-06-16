@@ -1,0 +1,172 @@
+"""
+Created on Mon Jun 15 19:12:25 2026
+
+@author: olle_
+"""
+
+import numpy as np
+import pandas as pd
+from scipy.stats import ttest_ind
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+
+"""
+Input variables for the discriminant.
+Working capital
+Retained earnings
+Earnings before interest and taxes
+Sales
+Total assets
+Market value equity
+Book value of total debt
+
+X1 = Working capital / Total assets
+X2 = Retained earnings / Total assets
+X3 = Earnings before interest and taxes / Total assets
+X4 = Market value equity / Book value of total debt
+X5 = Sales / Total assets
+
+Z = (V1X1 + V2X2 + V3X3 + V4X4 + V5X5) = 
+    (V1*Working capital/Total assets + V2*Retained earnings/Total assets + V3*Earnings before interest and taxes/Total Assets +
+     V4*Market value equity/Book value of total debt + V5*Sales/Total assets)
+	
+Working capital is the difference between current assets and current liabilities.
+"""
+
+" Creation of the data frame of 33 bankruptcies and 33 non-bankruptcies. "
+
+def dataframe_creator(
+	num_companies,
+	working_capital_range,
+	retained_earnings_range,
+	ebit_range,
+	sales_range,
+	market_value_equity_range,
+	book_value_total_debt_range,
+	mean=15,
+	sigma=1.4
+):
+	df = pd.DataFrame()
+	df["Total_assets"] = np.round(np.random.lognormal(mean=mean, sigma=sigma, size=num_companies), -4).astype(int)
+	df["Working_capital"] = np.round(df["Total_assets"] * np.random.uniform(*working_capital_range, num_companies), -4).astype(int)
+	df["Retained_earnings"] = np.round(df["Total_assets"] * np.random.uniform(*retained_earnings_range, num_companies), -4).astype(int)
+	df["EBIT"] = np.round(df["Total_assets"] * np.random.uniform(*ebit_range, num_companies), -4).astype(int)
+	df["Sales"] = np.round(df["Total_assets"] * np.random.uniform(*sales_range, num_companies), -4).astype(int)
+	df["Market_value_equity"] = np.round(df["Total_assets"] * np.random.uniform(*market_value_equity_range, num_companies), -4).astype(int)
+	df["Book_value_total_debt"] = np.round(df["Total_assets"] * np.random.uniform(*book_value_total_debt_range, num_companies), -4).astype(int)
+	return df
+
+# Non-bankrupt companies with a high range in values.
+non_bankrupt_df = dataframe_creator(
+	num_companies=33,
+	working_capital_range=(0.0, 0.5),
+	retained_earnings_range=(0.0, 1.0),
+	ebit_range=(0.0, 0.2),
+	sales_range=(0.5, 3.0),
+	market_value_equity_range=(0.5, 4.0),
+	book_value_total_debt_range=(0.1, 1.0)
+)
+non_bankrupt_df["Bankruptcy"] = 0
+
+# Bankrupt companies with a lower range in values.
+bankrupt_df = dataframe_creator(
+	num_companies=33,
+	working_capital_range=(-0.3, 0.1),
+	retained_earnings_range=(-0.5, 0.3),
+	ebit_range=(-0.1, 0.05),
+	sales_range=(0.2, 1.5),
+	market_value_equity_range=(0.1, 1.0),
+	book_value_total_debt_range=(0.5, 2.0)
+)
+bankrupt_df["Bankruptcy"] = 1 # Setting bankruptcies to a value oif 1. 
+
+# Appending the two data sets into the Multiple Discriminant Analysis (MDA) data set.
+mda_df = pd.concat([bankrupt_df, non_bankrupt_df]).reset_index(drop=True)
+
+# Creating the variable means for each ratio.
+mda_df["WC/TA"] = (mda_df["Working_capital"] / mda_df["Total_assets"]).round(3)
+mda_df["RE/TA"] = (mda_df["Retained_earnings"] / mda_df["Total_assets"]).round(3)
+mda_df["EBIT/TA"] = (mda_df["EBIT"] / mda_df["Total_assets"]).round(3)
+mda_df["MVE/BVTB"] = (mda_df["Market_value_equity"] / mda_df["Book_value_total_debt"]).round(3)
+mda_df["S/TA"] = (mda_df["Sales"] / mda_df["Total_assets"]).round(3)
+
+for variable in ["WC/TA","RE/TA","EBIT/TA","MVE/BVTB","S/TA"]:
+	t_stat, p_value = ttest_ind(
+		mda_df.loc[mda_df["Bankruptcy"] == 0, variable],
+		mda_df.loc[mda_df["Bankruptcy"] == 1, variable],
+		equal_var=False
+	)
+	print(variable, round(t_stat, 2), f"{p_value:.1e}")
+
+" Creating the discriminant analysis. "
+
+# Defining independent variables in X.
+X = mda_df[["WC/TA","RE/TA","EBIT/TA","MVE/BVTB","S/TA"]]
+# Defining the dependent variable as y.
+y = mda_df["Bankruptcy"]
+
+# Fitting the model.
+lda = LinearDiscriminantAnalysis()
+lda.fit(X, y)
+
+# Extracting coefficients from the fitted model.
+coefficients_df = pd.DataFrame({
+	"Variable": ["WC/TA","RE/TA","EBIT/TA","MVE/BVTB","S/TA"],
+	"Coefficient": lda.coef_[0]
+})
+coefficients_df 
+
+# Using the cofficients to create a discriminant Z score for each customer in the original data set.
+mda_df["Z"] = lda.decision_function(X)
+
+
+
+
+"""
+The next stage is finding the cut-off Z values, error and non-errors etc.
+"""
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
