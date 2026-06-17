@@ -7,7 +7,10 @@ Created on Mon Jun 15 19:12:25 2026
 import numpy as np
 import pandas as pd
 from scipy.stats import ttest_ind
+import sklearn
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.model_selection import train_test_split
+from IPython.display import display
 
 """
 Input variables for the discriminant.
@@ -29,7 +32,13 @@ Z = (V1X1 + V2X2 + V3X3 + V4X4 + V5X5) =
     (V1*Working capital/Total assets + V2*Retained earnings/Total assets + V3*Earnings before interest and taxes/Total Assets +
      V4*Market value equity/Book value of total debt + V5*Sales/Total assets)
 	
-Working capital is the difference between current assets and current liabilities.
+Working Capital	- Current assets minus current liabilities.
+Retained Earnings - Cumulative profits kept in the business rather than paid as dividends.
+EBIT - Operating profit before interest and taxes.
+Market Value Equity	- Market value of shareholders' ownership in the firm.
+Book Value Total Debt - Total liabilities recorded on the balance sheet.
+Sales - Revenue generated from operations.
+Total Assets - Total economic resources owned by the company.
 """
 
 " Creation of the data frame of 33 bankruptcies and 33 non-bankruptcies. "
@@ -42,112 +51,477 @@ def dataframe_creator(
 	sales_range,
 	market_value_equity_range,
 	book_value_total_debt_range,
-	mean=15,
-	sigma=1.4
+	iterations=1,
+	bankrupt=False,
+	instability_non_bankrupt=0.05,
+	instability_bankrupt=0.2,
+	non_bankrupt_drift=-0.05,
+	bankrupt_drift=-0.2,
+	mean=15, # Mean e value.
+	sigma=1.4, # Default skew when skewed.
+	skewed=False
 ):
-	df = pd.DataFrame()
-	df["Total_assets"] = np.round(np.random.lognormal(mean=mean, sigma=sigma, size=num_companies), -4).astype(int)
-	df["Working_capital"] = np.round(df["Total_assets"] * np.random.uniform(*working_capital_range, num_companies), -4).astype(int)
-	df["Retained_earnings"] = np.round(df["Total_assets"] * np.random.uniform(*retained_earnings_range, num_companies), -4).astype(int)
-	df["EBIT"] = np.round(df["Total_assets"] * np.random.uniform(*ebit_range, num_companies), -4).astype(int)
-	df["Sales"] = np.round(df["Total_assets"] * np.random.uniform(*sales_range, num_companies), -4).astype(int)
-	df["Market_value_equity"] = np.round(df["Total_assets"] * np.random.uniform(*market_value_equity_range, num_companies), -4).astype(int)
-	df["Book_value_total_debt"] = np.round(df["Total_assets"] * np.random.uniform(*book_value_total_debt_range, num_companies), -4).astype(int)
-	return df
+	all_years = {}
 
-# Non-bankrupt companies with a high range in values.
-non_bankrupt_df = dataframe_creator(
-	num_companies=33,
-	working_capital_range=(0.0, 0.5),
-	retained_earnings_range=(0.0, 1.0),
-	ebit_range=(0.0, 0.2),
-	sales_range=(0.5, 3.0),
-	market_value_equity_range=(0.5, 4.0),
-	book_value_total_debt_range=(0.1, 1.0)
+	for year in range(1, iterations + 1):
+
+		# Generate the first year normally.
+		if year == 1:
+
+			df = pd.DataFrame()
+
+			df["Total_assets"] = np.random.lognormal(
+				mean=mean,
+				sigma=sigma,
+				size=num_companies
+			).astype(int)
+
+			# If skewed, bankrupt companies.
+			if skewed:
+				df["Working_capital"] = (df["Total_assets"] * np.random.triangular(working_capital_range[0], working_capital_range[0] + (working_capital_range[1] - working_capital_range[0]) * 0.35, working_capital_range[1], num_companies)).astype(int)
+				df["Retained_earnings"] = (df["Total_assets"] * np.random.triangular(retained_earnings_range[0], retained_earnings_range[0] + (retained_earnings_range[1] - retained_earnings_range[0]) * 0.35, retained_earnings_range[1], num_companies)).astype(int)
+				df["EBIT"] = (df["Total_assets"] * np.random.triangular(ebit_range[0], ebit_range[0] + (ebit_range[1] - ebit_range[0]) * 0.35, ebit_range[1], num_companies)).astype(int)
+				df["Sales"] = (df["Total_assets"] * np.random.triangular(sales_range[0], sales_range[0] + (sales_range[1] - sales_range[0]) * 0.35, sales_range[1], num_companies)).astype(int)
+				df["Market_value_equity"] = (df["Total_assets"] * np.random.triangular(market_value_equity_range[0], market_value_equity_range[0] + (market_value_equity_range[1] - market_value_equity_range[0]) * 0.35, market_value_equity_range[1], num_companies)).astype(int)
+				df["Book_value_total_debt"] = (df["Total_assets"] * np.random.triangular(book_value_total_debt_range[0], book_value_total_debt_range[0] + (book_value_total_debt_range[1] - book_value_total_debt_range[0]) * 0.65, book_value_total_debt_range[1], num_companies)).astype(int)
+
+			# Else, non-bankrupt companies.
+			else:
+				df["Working_capital"] = (df["Total_assets"] * np.random.uniform(*working_capital_range, num_companies)).astype(int)
+				df["Retained_earnings"] = (df["Total_assets"] * np.random.uniform(*retained_earnings_range, num_companies)).astype(int)
+				df["EBIT"] = (df["Total_assets"] * np.random.uniform(*ebit_range, num_companies)).astype(int)
+				df["Sales"] = (df["Total_assets"] * np.random.uniform(*sales_range, num_companies)).astype(int)
+				df["Market_value_equity"] = (df["Total_assets"] * np.random.uniform(*market_value_equity_range, num_companies)).astype(int)
+				df["Book_value_total_debt"] = (df["Total_assets"] * np.random.uniform(*book_value_total_debt_range, num_companies)).astype(int)
+
+		# Subsequent years drift from the previous year.
+		else:
+
+			df = all_years[year - 1].copy()
+
+			if skewed:
+				instability = instability_bankrupt
+				drift = bankrupt_drift
+			else:
+				instability = instability_non_bankrupt
+				drift = non_bankrupt_drift
+
+			for column in [
+				"Total_assets",
+				"Working_capital",
+				"Retained_earnings",
+				"EBIT",
+				"Sales",
+				"Market_value_equity",
+				"Book_value_total_debt"
+			]:
+
+				shock = np.random.normal(
+					loc=drift,
+					scale=instability,
+					size=num_companies
+				)
+
+				df[column] = (
+					df[column]
+					*
+					(1 + shock)
+				).astype(int)
+
+		# Prevent denominator values from becoming zero or negative.
+		df["Total_assets"] = np.maximum(
+			1,
+			df["Total_assets"]
+		)
+
+		df["Book_value_total_debt"] = np.maximum(
+			1,
+			df["Book_value_total_debt"]
+		)
+
+		df["Bankruptcy"] = int(bankrupt)
+
+		all_years[year] = df
+
+	if iterations == 1:
+		return all_years[1]
+
+	return all_years
+
+# Non-bankrupt companies.
+non_bankrupt_dict = dataframe_creator(
+	num_companies=10000, # Sample size.
+	working_capital_range=(-0.2, 0.5),
+	retained_earnings_range=(-0.3, 1.0),
+	ebit_range=(-0.05, 0.2),
+	# The parameters below are always non-negative.
+	sales_range=(0.3, 3.0),
+	market_value_equity_range=(0.2, 4.0),
+	book_value_total_debt_range=(0.2, 1.5),
+	skewed=False,
+	iterations = 5,
+	bankrupt = False
+	
 )
-non_bankrupt_df["Bankruptcy"] = 0
 
-# Bankrupt companies with a lower range in values.
-bankrupt_df = dataframe_creator(
-	num_companies=33,
-	working_capital_range=(-0.3, 0.1),
-	retained_earnings_range=(-0.5, 0.3),
-	ebit_range=(-0.1, 0.05),
-	sales_range=(0.2, 1.5),
-	market_value_equity_range=(0.1, 1.0),
-	book_value_total_debt_range=(0.5, 2.0)
+# Bankrupt companies.
+bankrupt_dict = dataframe_creator(
+	num_companies=10000, # Sample size.
+	working_capital_range=(-0.5, 0.3),
+	retained_earnings_range=(-1.0, 0.5),
+	ebit_range=(-0.2, 0.1),
+	# The parameters below are always non-negative.
+	sales_range=(0.1, 2.0), # Sales are non-negative.
+	market_value_equity_range=(0.05, 2.0),
+	book_value_total_debt_range=(0.3, 2.5),
+	skewed=True,
+	iterations = 5,
+	bankrupt = True
 )
-bankrupt_df["Bankruptcy"] = 1 # Setting bankruptcies to a value oif 1. 
 
-# Appending the two data sets into the Multiple Discriminant Analysis (MDA) data set.
-mda_df = pd.concat([bankrupt_df, non_bankrupt_df]).reset_index(drop=True)
+# Appending bankrutpcies and non-bankrutpcies into the Multiple Discriminant Analysis (MDA) dictionary with each iteration.
+mda_dict = {}
+for year in bankrupt_dict.keys():
 
-# Creating the variable means for each ratio.
-mda_df["WC/TA"] = (mda_df["Working_capital"] / mda_df["Total_assets"]).round(3)
-mda_df["RE/TA"] = (mda_df["Retained_earnings"] / mda_df["Total_assets"]).round(3)
-mda_df["EBIT/TA"] = (mda_df["EBIT"] / mda_df["Total_assets"]).round(3)
-mda_df["MVE/BVTB"] = (mda_df["Market_value_equity"] / mda_df["Book_value_total_debt"]).round(3)
-mda_df["S/TA"] = (mda_df["Sales"] / mda_df["Total_assets"]).round(3)
+	mda_dict[year] = pd.concat([
+		bankrupt_dict[year],
+		non_bankrupt_dict[year]
+	]).reset_index(drop=True)
 
-for variable in ["WC/TA","RE/TA","EBIT/TA","MVE/BVTB","S/TA"]:
-	t_stat, p_value = ttest_ind(
-		mda_df.loc[mda_df["Bankruptcy"] == 0, variable],
-		mda_df.loc[mda_df["Bankruptcy"] == 1, variable],
-		equal_var=False
-	)
-	print(variable, round(t_stat, 2), f"{p_value:.1e}")
+def ratio_creator_and_f_tests(mda_dict):
+
+	ratio_dict = {}
+	f_test_dict = {}
+
+	for year, mda_df in mda_dict.items():
+
+		mda_df = mda_df.copy()
+
+		# Creating the variable means for each ratio.
+		mda_df["WC/TA"] = (mda_df["Working_capital"] / mda_df["Total_assets"]).round(3)
+		mda_df["RE/TA"] = (mda_df["Retained_earnings"] / mda_df["Total_assets"]).round(3)
+		mda_df["EBIT/TA"] = (mda_df["EBIT"] / mda_df["Total_assets"]).round(3)
+		mda_df["MVE/BVTB"] = (mda_df["Market_value_equity"] / mda_df["Book_value_total_debt"]).round(3)
+		mda_df["S/TA"] = (mda_df["Sales"] / mda_df["Total_assets"]).round(3)
+
+		t_test_results = []
+
+		for variable in ["WC/TA","RE/TA","EBIT/TA","MVE/BVTB","S/TA"]:
+
+			t_stat, p_value = ttest_ind(
+				mda_df.loc[mda_df["Bankruptcy"] == 0, variable],
+				mda_df.loc[mda_df["Bankruptcy"] == 1, variable],
+				equal_var=False
+			)
+
+			F_stat = t_stat ** 2
+
+			t_test_results.append({
+				"Variable": variable,
+				"F-statistic": round(F_stat, 1),
+				"P-value": f"{p_value:.2e}"
+			})
+
+		ratio_dict[year] = mda_df
+		f_test_dict[year] = pd.DataFrame(t_test_results)
+
+	return ratio_dict, f_test_dict
+
+# The t-values scale a lot with the number of observations as the p-values collapse 
+# when data sets differ more with more observations. Though, this is not an issue in MDA.
+# ratio_creator_and_f_tests(mda_dict)
+ratio_creator_and_f_tests(mda_dict)[1][1]
+ratio_creator_and_f_tests(mda_dict)[0]
 
 " Creating the discriminant analysis. "
 
-# Defining independent variables in X.
-X = mda_df[["WC/TA","RE/TA","EBIT/TA","MVE/BVTB","S/TA"]]
-# Defining the dependent variable as y.
-y = mda_df["Bankruptcy"]
+def training_data_mda_analysis(mda_df):
+	"""Run MDA and evaluate performance on the same data used for training."""
 
-# Fitting the model.
-lda = LinearDiscriminantAnalysis()
-lda.fit(X, y)
+	# Defining independent variables in X.
+	X = mda_df[["WC/TA","RE/TA","EBIT/TA","MVE/BVTB","S/TA"]]
 
-# Extracting coefficients from the fitted model.
-coefficients_df = pd.DataFrame({
-	"Variable": ["WC/TA","RE/TA","EBIT/TA","MVE/BVTB","S/TA"],
-	"Coefficient": lda.coef_[0]
-})
-coefficients_df 
+	# Defining the dependent variable as y.
+	y = mda_df["Bankruptcy"]
 
-# Using the cofficients to create a discriminant Z score for each customer in the original data set.
-mda_df["Z"] = lda.decision_function(X)
+	# Fitting the model.
+	lda = LinearDiscriminantAnalysis()
+	lda.fit(X, y)
 
+	# Extracting coefficients from the fitted model.
+	coefficients_df = pd.DataFrame({
+		"Variable": ["WC/TA","RE/TA","EBIT/TA","MVE/BVTB","S/TA"],
+		"Coefficient": lda.coef_[0]
+	})
 
+	# Using the coefficients to create a discriminant Z score.
+	mda_df["Z"] = lda.decision_function(X)
 
+	# Distribution of Z-values for bankruptcies and non-bankruptcies.
+	z_distribution_df = mda_df.groupby("Bankruptcy")["Z"].describe()
 
-"""
-The next stage is finding the cut-off Z values, error and non-errors etc.
-"""
+	# Predictions on the training data.
+	predictions = lda.predict(X)
 
+	confusion_training_df = pd.crosstab(
+		y,
+		predictions,
+		rownames=["Actual"],
+		colnames=["Predicted"]
+	)
 
+	confusion_training_df.index = [
+		"Actual Non-bankrupt",
+		"Actual Bankrupt"
+	]
 
+	confusion_training_df.columns = [
+		"Predicted Non-bankrupt",
+		"Predicted Bankrupt"
+	]
 
+	return (
+		lda,
+		coefficients_df,
+		z_distribution_df,
+		confusion_training_df
+	)
 
+def training_data_mda_analysis_dict(mda_dict):
 
+	results_dict = {}
 
+	for year, mda_df in mda_dict.items():
+		lda, coefficients_df, z_distribution_df, confusion_training_df = (
+			training_data_mda_analysis(mda_df)
+		)
+		results_dict[year] = {
+			"lda": lda,
+			"coefficients_df": coefficients_df,
+			"z_distribution_df": z_distribution_df,
+			"confusion_training_df": confusion_training_df
+		}
+	return results_dict
 
+# First create the ratios.
+ratio_dict, f_test_dict = ratio_creator_and_f_tests(mda_dict)
 
+# Then run the MDA on every year.
+results_dict = training_data_mda_analysis_dict(ratio_dict)
 
+# Show coefficients and Z-distribution for the first iteration only.
+print("COEFFICIENTS - YEAR 1")
+display(results_dict[1]["coefficients_df"])
 
+print("Z DISTRIBUTION - YEAR 1")
+display(results_dict[1]["z_distribution_df"])
 
+# Show confusion matrices for all iterations.
+for year in results_dict.keys():
 
+	print(f"\nCONFUSION MATRIX - YEAR {year}")
 
+	display(
+		results_dict[year]["confusion_training_df"]
+	)
 
+" Running test runs. The output above is trained on the same data, which can give too lower error percentages"
 
+def test_data_mda_analysis_dict(
+	ratio_dict,
+	test_size=0.1
+):
+	results_dict = {}
 
+	for year, mda_df in ratio_dict.items():
 
+		# Defining independent variables in X.
+		X = mda_df[["WC/TA","RE/TA","EBIT/TA","MVE/BVTB","S/TA"]]
 
+		# Defining the dependent variable as y.
+		y = mda_df["Bankruptcy"]
 
+		# Creating training and test samples.
+		X_train, X_test, y_train, y_test = train_test_split(
+			X,
+			y,
+			test_size=test_size,
+			stratify=y
+		)
 
+		# Fitting the model on the training data.
+		lda = LinearDiscriminantAnalysis()
+		lda.fit(X_train, y_train)
 
+		# Predicting on the unseen test data.
+		predictions_test = lda.predict(X_test)
 
+		confusion_test_df = pd.crosstab(
+			y_test,
+			predictions_test,
+			rownames=["Actual"],
+			colnames=["Predicted"]
+		)
 
+		confusion_test_df.index = [
+			"Actual Non-bankrupt",
+			"Actual Bankrupt"
+		]
+
+		confusion_test_df.columns = [
+			"Predicted Non-bankrupt",
+			"Predicted Bankrupt"
+		]
+
+		results_dict[year] = {
+			"lda": lda,
+			"confusion_test_df": confusion_test_df
+		}
+
+	return results_dict
+
+test_results = test_data_mda_analysis_dict(ratio_dict)
+
+def print_confusion_percentages(
+	results_dict,
+	test_results
+):
+	for year in range(1, len(results_dict) + 1):
+
+		print(f"\nTRAINING MATRIX - YEAR {year}")
+
+		training_df = results_dict[year]["confusion_training_df"]
+
+		training_pct_df = (
+			training_df.div(training_df.sum(axis=1), axis=0) * 100
+		).round(2)
+
+		print(training_pct_df)
+
+		print(f"\nTEST MATRIX - YEAR {year}")
+
+		test_df = test_results[year]["confusion_test_df"]
+
+		test_pct_df = (
+			test_df.div(test_df.sum(axis=1), axis=0) * 100
+		).round(2)
+
+		print(test_pct_df)
+
+		print("\n")
+
+print_confusion_percentages(results_dict,test_results)
+
+" Monte carlo simulation while running the test set an arbitrary number of times. "
+
+def monte_carlo_mda(
+	num_runs=100,
+	test_size=0.1
+):
+	results = []
+
+	for run in range(num_runs):
+
+		# Non-bankrupt companies.
+		non_bankrupt_df = dataframe_creator(
+			num_companies=10000,
+			working_capital_range=(-0.2, 0.5),
+			retained_earnings_range=(-0.3, 1.0),
+			ebit_range=(-0.05, 0.2),
+			sales_range=(0.3, 3.0),
+			market_value_equity_range=(0.2, 4.0),
+			book_value_total_debt_range=(0.2, 1.5),
+			skewed=False
+		)
+		non_bankrupt_df["Bankruptcy"] = 0
+
+		# Bankrupt companies.
+		bankrupt_df = dataframe_creator(
+			num_companies=10000,
+			working_capital_range=(-0.5, 0.3),
+			retained_earnings_range=(-1.0, 0.5),
+			ebit_range=(-0.2, 0.1),
+			sales_range=(0.1, 2.0),
+			market_value_equity_range=(0.05, 2.0),
+			book_value_total_debt_range=(0.3, 2.5),
+			skewed=True
+		)
+		bankrupt_df["Bankruptcy"] = 1
+
+		mda_df = pd.concat(
+			[bankrupt_df, non_bankrupt_df]
+		).reset_index(drop=True)
+
+		mda_df, _ = ratio_creator_and_f_tests(mda_df)
+
+		_, confusion_test_df = test_data_mda_analysis(
+			mda_df,
+			test_size=test_size
+		)
+
+		TN = confusion_test_df.iloc[0, 0] # True negative
+		FP = confusion_test_df.iloc[0, 1] # False positive
+		FN = confusion_test_df.iloc[1, 0] # False negative
+		TP = confusion_test_df.iloc[1, 1] # True positive
+
+		type_1_error = FN / (FN + TP)
+		type_2_error = FP / (FP + TN)
+		accuracy = (TP + TN) / (TP + TN + FP + FN) # True positive being the division of both trues by the entire length.
+
+		results.append({
+			"Run": run + 1,
+			"Type_1_Error": type_1_error,
+			"Type_2_Error": type_2_error,
+			"Accuracy": accuracy
+		})
+
+	return pd.DataFrame(results)
+
+mc_results_df = monte_carlo_mda(num_runs=100)
+mc_results_df
+
+def training_vs_monte_carlo_results(
+	confusion_training_df,
+	mc_results_df
+):
+	TN = confusion_training_df.iloc[0, 0]
+	FP = confusion_training_df.iloc[0, 1]
+	FN = confusion_training_df.iloc[1, 0]
+	TP = confusion_training_df.iloc[1, 1]
+
+	training_type_1_error = FN / (FN + TP)
+	training_type_2_error = FP / (FP + TN)
+	training_accuracy = (TP + TN) / (TP + TN + FP + FN)
+
+	results_df = pd.DataFrame({
+		"Metric": [
+			"Type I Error",
+			"Type II Error",
+			"Accuracy"
+		],
+		"Training Data": [
+			training_type_1_error,
+			training_type_2_error,
+			training_accuracy
+		],
+		"Mean Monte Carlo": [
+			round(mc_results_df["Type_1_Error"].mean(), 4),
+			round(mc_results_df["Type_2_Error"].mean(), 4),
+			round(mc_results_df["Accuracy"].mean(), 4)
+		],
+		"Std Monte Carlo": [
+			round(mc_results_df["Type_1_Error"].std(), 4),
+			round(mc_results_df["Type_2_Error"].std(), 4),
+			round(mc_results_df["Accuracy"].std(), 4)
+		]
+	})
+
+	return results_df
+
+# The fit is a lot higher than in reality as there is more hidden company information in a real portfolio.
+# A company might for example be underperforming which will show in their upcoming financial statement
+# which leads to randomness which is not present in the generated data sets above.
+training_vs_monte_carlo_results(confusion_training_df,mc_results_df)
 
 
 
