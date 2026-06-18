@@ -267,7 +267,7 @@ def dataframe_creator(
 			df["MVE_factor"]
 		).astype(int)
 
-		df["Bankruptcy"] = int(bankrupt)
+		df["Bankruptcy"] = int(not bankrupt)
 
 		all_years[year] = df
 	# Return at once if only one year.
@@ -394,13 +394,13 @@ def training_data_mda_analysis(mda_df):
 	)
 
 	confusion_training_df.index = [
-		"Actual Non-bankrupt",
-		"Actual Bankrupt"
+	"Actual Bankrupt",
+	"Actual Non-bankrupt"
 	]
-
+	
 	confusion_training_df.columns = [
-		"Predicted Non-bankrupt",
-		"Predicted Bankrupt"
+		"Predicted Bankrupt",
+		"Predicted Non-bankrupt"
 	]
 
 	return (
@@ -497,13 +497,13 @@ def test_data_mda_analysis_dict(
 		)
 
 		confusion_test_df.index = [
-			"Actual Non-bankrupt",
-			"Actual Bankrupt"
+			"Actual Bankrupt",
+			"Actual Non-bankrupt"
 		]
-
+		
 		confusion_test_df.columns = [
-			"Predicted Non-bankrupt",
-			"Predicted Bankrupt"
+			"Predicted Bankrupt",
+			"Predicted Non-bankrupt"
 		]
 
 		results_dict[year] = {
@@ -613,18 +613,14 @@ def monte_carlo_mda_dict(
 				"confusion_test_df"
 			]
 
-			TN = confusion_test_df.iloc[0, 0]
-			FP = confusion_test_df.iloc[0, 1]
-			FN = confusion_test_df.iloc[1, 0]
-			TP = confusion_test_df.iloc[1, 1]
+			TP = confusion_test_df.iloc[0, 0]
+			FN = confusion_test_df.iloc[0, 1]
+			FP = confusion_test_df.iloc[1, 0]
+			TN = confusion_test_df.iloc[1, 1]
 
 			type_1_error = FN / (FN + TP)
 			type_2_error = FP / (FP + TN)
-			accuracy = (
-				TP + TN
-			) / (
-				TP + TN + FP + FN
-			)
+			accuracy = (TP + TN) / (TP + TN + FP + FN)
 
 			results_dict[year].append({
 				"Run": run + 1,
@@ -656,8 +652,8 @@ def training_vs_monte_carlo_results(
 		confusion_training_df = results_dict[iteration]["confusion_training_df"]
 		mc_results_df = mc_results_dict[iteration]
 
-		TN, FP = confusion_training_df.iloc[0]
-		FN, TP = confusion_training_df.iloc[1]
+		TP, FN = confusion_training_df.iloc[0]
+		FP, TN = confusion_training_df.iloc[1]
 
 		results_df = pd.DataFrame({
 			"Training Data": [
@@ -696,11 +692,11 @@ def plot_z_score_distribution(
 ):
 	df = ratio_dict[year]
 
-	bankrupt_z = df.loc[df["Bankruptcy"] == 1, "Z"]
-	non_bankrupt_z = df.loc[df["Bankruptcy"] == 0, "Z"]
+	bankrupt_z = df.loc[df["Bankruptcy"] == 0, "Z"]
+	non_bankrupt_z = df.loc[df["Bankruptcy"] == 1, "Z"]
 
-	gray_left = np.percentile(non_bankrupt_z, 95)
-	gray_right = np.percentile(bankrupt_z, 5)
+	gray_left = np.percentile(bankrupt_z, 95)
+	gray_right = np.percentile(non_bankrupt_z, 5)
 
 	plt.figure(figsize=(12, 5))
 
@@ -727,4 +723,18 @@ plot_z_score_distribution(
 	ratio_dict,
 	year=1
 )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
