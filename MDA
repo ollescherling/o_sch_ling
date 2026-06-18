@@ -695,8 +695,8 @@ def plot_z_score_distribution(
 	bankrupt_z = df.loc[df["Bankruptcy"] == 0, "Z"]
 	non_bankrupt_z = df.loc[df["Bankruptcy"] == 1, "Z"]
 
-	gray_left = np.percentile(bankrupt_z, 95)
-	gray_right = np.percentile(non_bankrupt_z, 5)
+	gray_left = bankrupt_z.max()
+	gray_right = non_bankrupt_z.min()
 
 	plt.figure(figsize=(12, 5))
 
@@ -738,3 +738,30 @@ plot_z_score_distribution(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		
+		
