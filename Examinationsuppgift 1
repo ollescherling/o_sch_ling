@@ -1,0 +1,163 @@
+// Bokningsreferensen är en primärnyckel.
+
+// Kundnummer kan existera flera gånger eftersom
+// samma kund kan göra flera bokningar.
+
+Table bokning {
+  bokningsreferens varchar [pk]
+  kundnummer int
+  pris int
+  kund_incheckning_datum timestamp
+  kund_utcheckning_datum timestamp
+  personal_ID varchar
+}
+
+// En bokning kan innehålla flera rum och samma rum
+// kan förekomma i flera bokningar över tid.
+// Bokning och rum har därför ett M:N-samband.
+// Detta löses genom mellanentiteten bokat_rum.
+
+Table bokat_rum {
+  bokningsreferens varchar
+  rumsnummer varchar
+
+  indexes {
+    (bokningsreferens, rumsnummer) [pk]
+  }
+}
+
+Table kund {
+  kundnummer int [pk]
+  passpnr int
+  kund_namn varchar
+  email varchar
+  telefonnummer int
+  kortnummer int
+}
+
+Table grupp {
+  gruppbokning binary
+  kundnummer int
+  bokningsreferens varchar
+
+  indexes {
+    (kundnummer, bokningsreferens) [pk]
+  }
+}
+
+Table personal {
+  personal_ID int [pk]
+  personal_namn varchar
+}
+
+Table mail {
+  kundnummer int [pk]
+  email varchar
+}
+
+// Kund kan byta email och samma emailadress kan finnas
+// på fler än ett ställe i en databas. Därför skapar man
+// en composite key av kundnummer och erbjudandekoden.
+
+Table erbjudande {
+  email varchar
+  kundnummer int
+  erbjudande_kod int
+
+  indexes {
+    (kundnummer, erbjudande_kod) [pk]
+  }
+}
+
+Table betalning {
+  bokningsreferens varchar [pk]
+  swish int
+  kort int
+  kontant int
+  faktura int
+}
+
+// En bokningsreferens kan förekomma på flera datum.
+// Därför används bokningsreferens och datum tillsammans
+// som sammansatt primärnyckel.
+
+Table middag {
+  middagsgäster_antal varchar
+  middag_datum timestamp
+  bokningsreferens varchar
+
+  indexes {
+    (bokningsreferens, middag_datum) [pk]
+  }
+}
+
+Table rum {
+  rumsnummer varchar [pk]
+  rumstyp varchar
+  rum_incheckning_datum timestamp
+  rum_utcheckning_datum timestamp
+}
+
+// Ett rum kan städas flera gånger.
+// Därför är rumsnummer inte ensamt unikt.
+// Rumsnummer och städat_datum bildar tillsammans
+// en sammansatt primärnyckel.
+
+Table städning {
+  rumsnummer varchar
+  städat_datum timestamp
+  personal_ID varchar
+
+  indexes {
+    (rumsnummer, städat_datum) [pk]
+  }
+}
+
+// -------------------------------------------
+// RELATIONER
+// -------------------------------------------
+
+// En kund kan ha flera bokningar.
+// Varje bokning tillhör en kund.
+
+Ref: bokning.kundnummer > kund.kundnummer
+
+// En kund kan ha en eller flera gruppbokningar.
+
+Ref: grupp.kundnummer > kund.kundnummer
+
+// Gruppbokningen kopplas till en bokning.
+
+Ref: grupp.bokningsreferens > bokning.bokningsreferens
+
+// Ett erbjudande skickas till en kund.
+
+Ref: erbjudande.kundnummer > kund.kundnummer
+
+// En bokning har betalningsinformation.
+
+Ref: betalning.bokningsreferens - bokning.bokningsreferens
+
+// En bokning kan ha middagsgäster registrerade
+// på flera olika datum.
+
+Ref: middag.bokningsreferens > bokning.bokningsreferens
+
+// Bokning och rum har ursprungligen ett M:N-samband.
+// Mellantabellen bokat_rum bryter upp detta i två
+// 1:M-samband.
+
+Ref: bokat_rum.bokningsreferens > bokning.bokningsreferens
+Ref: bokat_rum.rumsnummer > rum.rumsnummer
+
+// Ett rum kan ha flera registrerade städningar.
+
+Ref: städning.rumsnummer > rum.rumsnummer
+
+// Mail behöver brytas ut för att undvika redundans.
+Ref: kund.kundnummer - mail.kundnummer
+Ref: erbjudande.kundnummer - mail.kundnummer
+
+// Mail behöver brytas ut för att undvika redundans.
+Ref: personal.personal_ID - städning.personal_ID
+Ref: personal.personal_ID - bokning.personal_ID
