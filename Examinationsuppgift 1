@@ -29,7 +29,8 @@ Table bokat_rum {
 Table kund {
   kundnummer int [pk]
   passpnr int
-  kund_namn varchar
+  kund_förnamn varchar
+  kund_efternamn varchar
   email varchar
   telefonnummer int
   kortnummer int
@@ -47,7 +48,8 @@ Table grupp {
 
 Table personal {
   personal_ID int [pk]
-  personal_namn varchar
+  personal_förnamn varchar
+  personal_efternamn varchar
 }
 
 Table mail {
@@ -157,6 +159,8 @@ Ref: städning.rumsnummer > rum.rumsnummer
 // Mail behöver brytas ut för att undvika redundans.
 Ref: kund.kundnummer - mail.kundnummer
 Ref: erbjudande.kundnummer - mail.kundnummer
+Ref: kund.email - mail.email
+Ref: erbjudande.email - mail.email
 
 // Mail behöver brytas ut för att undvika redundans.
 Ref: personal.personal_ID - städning.personal_ID
