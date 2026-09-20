@@ -130,7 +130,7 @@ Ref: grupp.kundnummer > kund.kundnummer
 
 // Gruppbokningen kopplas till en bokning.
 
-Ref: grupp.bokningsreferens > bokning.bokningsreferens
+Ref: grupp.bokningsreferens - bokning.bokningsreferens
 
 // Ett erbjudande skickas till en kund.
 
@@ -138,7 +138,7 @@ Ref: erbjudande.kundnummer > kund.kundnummer
 
 // En bokning har betalningsinformation.
 
-Ref: betalning.bokningsreferens - bokning.bokningsreferens
+Ref: betalning.bokningsreferens > bokning.bokningsreferens
 
 // En bokning kan ha middagsgäster registrerade
 // på flera olika datum.
@@ -160,8 +160,8 @@ Ref: städning.rumsnummer > rum.rumsnummer
 Ref: kund.kundnummer - mail.kundnummer
 Ref: erbjudande.kundnummer - mail.kundnummer
 Ref: kund.email - mail.email
-Ref: erbjudande.email - mail.email
+Ref: erbjudande.email > mail.email
 
 // Mail behöver brytas ut för att undvika redundans.
-Ref: personal.personal_ID - städning.personal_ID
+Ref: personal.personal_ID < städning.personal_ID
 Ref: personal.personal_ID - bokning.personal_ID
