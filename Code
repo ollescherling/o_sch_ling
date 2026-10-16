@@ -1,0 +1,679 @@
+-- Skapar Hotelhedvig som databas om den inte tidigare existerar i samma körning för att undvika en krasch.
+CREATE DATABASE IF NOT EXISTS HotellHedvig
+CHARACTER SET utf8mb4; -- Text encoding for att tillåta svenska bokstäver, åäö.
+USE HotellHedvig; -- Använder sig av Hotell Hedvig som databas för Create Tables
+-- Skapar en användare för Python om den inte redan existerar.
+CREATE USER IF NOT EXISTS 'hotell_python'@'localhost'
+IDENTIFIED BY 'YourChosenPasswordHere';
+
+-- Ger Python-användaren behörighet till databasen.
+GRANT SELECT, INSERT, UPDATE, DELETE, EXECUTE
+ON HotellHedvig.*
+TO 'hotell_python'@'localhost';
+
+-- Drop tables för att kunna köra koden återkommande gånger, annars kraschar koden om tabellen redan finns från tidigare körning.
+DROP TABLE IF EXISTS Städning;
+DROP TABLE IF EXISTS Middag;
+DROP TABLE IF EXISTS Betalning;
+DROP TABLE IF EXISTS Erbjudande;
+DROP TABLE IF EXISTS Grupp;
+DROP TABLE IF EXISTS Bokat_rum;
+DROP TABLE IF EXISTS Bokning;
+DROP TABLE IF EXISTS Mail;
+DROP TABLE IF EXISTS Rum;
+DROP TABLE IF EXISTS Personal;
+DROP TABLE IF EXISTS Kund;
+
+-- Tabellerna skapas i en ordning där refererade tabeller
+-- existerar innan tabeller med främmande nycklar skapas.
+
+-- 1. KUND
+CREATE TABLE Kund (
+    Kundnummer INT PRIMARY KEY, -- Unikt numeriskt ID för varje kund.
+    PassPnr VARCHAR(30) UNIQUE, -- Passnummer och personnummer måste hållas unika för att insert bara ska kunna ha en rad per kund.
+    Kund_förnamn VARCHAR(50) NOT NULL, -- Textvariabel för kundens förnamn.
+    Kund_efternamn VARCHAR(50) NOT NULL, -- Textvariabel för kundens efternamn.
+    Email VARCHAR(254), -- Textvariabel som kan innehålla bokstäver, siffror och specialtecken.
+    Telefonnummer VARCHAR(20) -- String eftersom telefonnummer kan innehålla landskod och inledande nollor.
+);
+
+-- 2. PERSONAL
+CREATE TABLE Personal (
+    Personal_ID VARCHAR(20) PRIMARY KEY, -- Unikt ID för personalen som kan innehålla både bokstäver och siffror.
+    Personal_förnamn VARCHAR(50) NOT NULL, -- Textvariabel för personalens förnamn.
+    Personal_efternamn VARCHAR(50) NOT NULL, -- Textvariabel för personalens efternamn.
+    Roll VARCHAR(20) NOT NULL -- Textvariabel som beskriver personalens yrkesroll.
+);
+
+-- 3. RUM
+CREATE TABLE Rum (
+    Rumsnummer INT PRIMARY KEY, -- Unikt numeriskt rumsnummer.
+    Rumstyp VARCHAR(20) NOT NULL -- Textvariabel som beskriver rumstypen.
+);
+
+-- Incheckningsdatum och utcheckningsdatum har tagits bort.
+-- Ett rum kan användas för flera bokningar över tid.
+-- Dessa datum hör därför till bokningen.
+
+-- 4. BOKNING
+CREATE TABLE Bokning (
+    Bokningsreferens VARCHAR(20) PRIMARY KEY, -- Kan innehålla text och inte bara siffror, därmed string.
+    Kundnummer INT NOT NULL, -- Numeriskt ID för kunden som ansvarar för bokningen.
+    Kund_incheckning_datum DATETIME NOT NULL, -- Datum och tid för incheckning.
+    Kund_utcheckning_datum DATETIME NOT NULL, -- Datum och tid för utcheckning.
+    Personal_ID VARCHAR(20), -- Identifierar personalen som ansvarar för bokningen.
+    Pris DECIMAL(12,2) NOT NULL, -- Exakt numeriskt belopp med två decimaler.
+	Faktisk_incheckning DATETIME DEFAULT NULL, -- NULL innebär att kunden ännu inte har checkat in.
+    Faktisk_utcheckning DATETIME DEFAULT NULL, -- NULL innebär att kunden ännu inte har checkat ut.
+    FOREIGN KEY (Kundnummer) REFERENCES Kund(Kundnummer),
+    FOREIGN KEY (Personal_ID) REFERENCES Personal(Personal_ID),
+
+    CHECK (Kund_utcheckning_datum > Kund_incheckning_datum),
+    CHECK (Pris >= 0)
+);
+
+-- 5. BOKAT_RUM. Den här är tom för att inget ska vara bokat i början.
+CREATE TABLE Bokat_rum (
+    Bokningsreferens VARCHAR(20), -- Kan innehålla text och inte bara siffror, därmed string.
+    Rumsnummer INT, -- Numeriskt rumsnummer.
+    PRIMARY KEY (Bokningsreferens, Rumsnummer), -- Sammansatt primärnyckel för att identifiera varje bokat rum inom en bokning.
+    FOREIGN KEY (Bokningsreferens) REFERENCES Bokning(Bokningsreferens),
+    FOREIGN KEY (Rumsnummer) REFERENCES Rum(Rumsnummer)
+);
+
+-- 6. GRUPP
+CREATE TABLE Grupp (
+    Kundnummer INT, -- Numeriskt ID för kunden som ingår i gruppbokningen.
+    Bokningsreferens VARCHAR(20), -- Identifierar bokningen som kunden tillhör.
+    PRIMARY KEY (Kundnummer, Bokningsreferens), -- Sammansatt primärnyckel för att identifiera kunden inom en bokning.
+    FOREIGN KEY (Kundnummer) REFERENCES Kund(Kundnummer),
+    FOREIGN KEY (Bokningsreferens) REFERENCES Bokning(Bokningsreferens)
+);
+
+-- Gruppbokning BOOLEAN har tagits bort.
+-- Tabellen representerar nu vilka kunder som ingår i en bokning.
+-- Om en bokning har flera registrerade kunder kan den användas
+-- för att identifiera en gruppbokning.
+
+-- 7. ERBJUDANDE
+CREATE TABLE Erbjudande (
+    Kundnummer INT, -- Numeriskt ID för kunden som får erbjudandet.
+    Erbjudande_kod INT, -- Numerisk kod som identifierar erbjudandet.
+
+    PRIMARY KEY (Kundnummer, Erbjudande_kod), -- Sammansatt primärnyckel som tillåter flera erbjudanden per kund.
+
+    FOREIGN KEY (Kundnummer) REFERENCES Kund(Kundnummer)
+);
+
+-- Email har tagits bort eftersom adressen redan finns i Kund.
+-- Kundnummer används för att identifiera mottagaren.
+
+-- 8. BETALNING
+CREATE TABLE Betalning (
+    Betalning_ID INT AUTO_INCREMENT PRIMARY KEY, -- Unikt numeriskt ID för varje betalning.
+    Bokningsreferens VARCHAR(20) NOT NULL, -- Identifierar bokningen som betalningen tillhör.
+    Betalningsmetod VARCHAR(20) NOT NULL, -- Betalningsmetod, exempelvis Swish, Kort eller Kontant.
+    Belopp DECIMAL(12,2) NOT NULL, -- Exakt numeriskt betalningsbelopp med två decimaler.
+    Valuta CHAR(3) NOT NULL DEFAULT 'SEK', -- Valutakod med tre bokstäver, exempelvis SEK, USD, EUR eller GBP.
+    Betalningsdatum DATETIME NOT NULL, -- Datum och tid för betalningen.
+
+    FOREIGN KEY (Bokningsreferens) REFERENCES Bokning(Bokningsreferens),
+
+    CHECK (Belopp >= 0), -- Belopp på 0 tillåts om en kund får en vistelse gratis.
+	CHECK(Belopp <= 100000), -- Betalningar får ett tak på 100,000 SEK om någon av misstag lägger på två extra nollor.
+    CHECK (Betalningsmetod IN ('Swish', 'Kort', 'Kontant')) -- Tillåter bara tre betaltyper.
+);
+
+-- Faktura är en faktureringsmetod, inte en genomförd betalning.
+-- För ett mer avancerat system bör fakturor lagras separat.
+-- Återbetalningar behöver också en separat hantering.
+
+-- 9. MIDDAG
+CREATE TABLE Middag (
+    Bokningsreferens VARCHAR(20), -- Identifierar bokningen som middagen tillhör.
+    Middag_datum DATETIME, -- Datum och tid för middagen.
+
+    -- Numeriska variabler med standardvärde 0 om inget annat anges.
+    Antal_vuxna INT NOT NULL DEFAULT 0, -- Integer på grund av numeriskt antal.
+    Antal_barn INT NOT NULL DEFAULT 0, -- Integer på grund av numeriskt antal.
+    Specialkost VARCHAR(100) DEFAULT 'Inga allergier', -- Textvariabel som anger eventuell specialkost.
+
+    PRIMARY KEY (Bokningsreferens, Middag_datum), -- Sammansatt primärnyckel som tillåter flera middagar per bokning vid olika tidpunkter.
+
+    FOREIGN KEY (Bokningsreferens) REFERENCES Bokning(Bokningsreferens),
+
+    -- Tvingar antalet gäster att vara minst 1 i varje middagsbokning.
+    CHECK (Antal_vuxna >= 0),
+    CHECK (Antal_barn >= 0),
+    CHECK (Antal_vuxna + Antal_barn > 0)
+);
+
+-- 10. STÄDNING
+CREATE TABLE Städning (
+    Rumsnummer INT, -- Identifierar rummet som städats.
+    Städat_datum DATETIME, -- Datum och tid för städningen.
+    Personal_ID VARCHAR(20) NOT NULL, -- Identifierar personalen som utfört städningen.
+
+    PRIMARY KEY (Rumsnummer, Städat_datum), -- Sammansatt primärnyckel för varje städning av ett rum vid en viss tidpunkt.
+
+    FOREIGN KEY (Rumsnummer) REFERENCES Rum(Rumsnummer),
+    FOREIGN KEY (Personal_ID) REFERENCES Personal(Personal_ID)
+);
+
+-- Roll har tagits bort eftersom personalens yrkesroll
+-- redan finns i tabellen Personal.
+
+-- 11. MAIL
+-- Tabellen Mail har tagits bort eftersom Kund redan innehåller Email.
+-- Om du senare vill registrera utskick kan du skapa en separat
+-- tabell med exempelvis Mail_ID, Kundnummer, Skickat_datum och Ämne.
+
+USE HotellHedvig; -- Använder sig av Hotell Hedvig igen som databas för inserts.
+
+/*
+INSERT med fyra rader för varje entitet, med kommentarer gällande ordning av entiteter för bättre läsbarhet.
+*/
+
+-- Kundnummer, PassPnr, Kund_förnamn, Kund_efternamn, Email, Telefonnummer
+-- PK: Kundnummer.
+-- FK: Inga främmande nycklar.
+-- PassPnr är UNIQUE, vilket förhindrar dubbla pass- eller personnummer.
+INSERT INTO Kund
+    (Kundnummer, PassPnr, Kund_förnamn, Kund_efternamn, Email, Telefonnummer) -- Kolumnnamn för entiteter
+VALUES
+    (1, 'AA1234567', 'Sara', 'Romano', 'sararomano56@gmail.com', '+39653586926'),
+    (2, 'C12X34567', 'Hans', 'Miller', 'hans.miller@hotmail.com', '+4915123456789'),
+    (3, '891231-1234', 'Anna', 'Karlsson', 'anna.karlsson@gmail.com', '+46700000003'),
+    (4, '000101-4321', 'Johan', 'Ek', 'johan.ek@hotmail.com', '+46700000004');
+
+-- Personal_ID, Personal_förnamn, Personal_efternamn, Roll
+-- PK: Personal_ID.
+-- FK: Inga främmande nycklar.
+INSERT INTO Personal
+    (Personal_ID, Personal_förnamn, Personal_efternamn, Roll) -- Kolumnnamn för entiteter
+VALUES
+    ('SEBAN01', 'Sebastian', 'Andersson', 'Lokalvårdare'),
+    ('ANNSV01', 'Anna', 'Svensson', 'Lokalvårdare'),
+    ('ERIJO01', 'Erik', 'Johansson', 'Receptionist'),
+    ('MARLI01', 'Maria', 'Lindberg', 'Receptionist');
+
+-- Rumsnummer, Rumstyp
+-- PK: Rumsnummer.
+-- FK: Inga främmande nycklar.
+INSERT INTO Rum
+    (Rumsnummer, Rumstyp)
+VALUES
+    (1, 'Enkelrum'),
+    (2, 'Familjerum'),
+    (3, 'Enkelrum'),
+    (4, 'Familjerum'),
+    (6, 'Enkelrum'),
+	(7, 'Enkelrum'),
+    (8, 'Familjerum'),
+    (9, 'Enkelrum');
+
+-- Bokningsreferens, Kundnummer, Kund_incheckning_datum, Kund_utcheckning_datum, Personal_ID, Pris
+-- PK: Bokningsreferens.
+-- FK: Kundnummer refererar till Kund(Kundnummer).
+-- FK: Personal_ID refererar till Personal(Personal_ID).
+INSERT INTO Bokning
+    (Bokningsreferens, Kundnummer, Kund_incheckning_datum, Kund_utcheckning_datum, Personal_ID, Pris)
+VALUES
+    ('B000001', 1, '2026-10-08 15:13', '2026-10-10 12:00', 'SEBAN01', 3000),
+    ('B000002', 2, '2026-10-09 15:00', '2026-10-11 12:00', 'ERIJO01', 2400),
+    ('B000003', 3, '2026-10-08 15:00', '2026-10-12 12:00', 'MARLI01', 1800),
+    ('B000004', 4, '2026-10-09 15:00', '2026-10-13 12:00', 'ERIJO01', 3200);
+
+-- Kundnummer, Bokningsreferens
+-- PK: Kundnummer och Bokningsreferens (sammansatt primärnyckel).
+-- FK: Kundnummer refererar till Kund(Kundnummer).
+-- FK: Bokningsreferens refererar till Bokning(Bokningsreferens).
+INSERT INTO Grupp
+    (Kundnummer, Bokningsreferens) -- Kolumnnamn för entiteter
+VALUES
+    (1, 'B000001'),
+    (2, 'B000002'),
+    (3, 'B000003'),
+    (4, 'B000004');
+
+-- Kundnummer, Erbjudande_kod
+-- PK: Kundnummer och Erbjudande_kod (sammansatt primärnyckel).
+-- FK: Kundnummer refererar till Kund(Kundnummer).
+INSERT INTO Erbjudande
+    (Kundnummer, Erbjudande_kod) -- Kolumnnamn för entiteter
+VALUES
+    (1, 1),
+    (2, 1),
+    (3, 2),
+    (4, 2);
+
+-- Bokningsreferens, Betalningsmetod, Belopp, Valuta, Betalningsdatum
+-- Betalning_ID genereras automatiskt med AUTO_INCREMENT.
+-- PK: Betalning_ID (genereras automatiskt med AUTO_INCREMENT).
+-- FK: Bokningsreferens refererar till Bokning (Bokningsreferens).
+INSERT INTO Betalning
+    (Bokningsreferens, Betalningsmetod, Belopp, Valuta, Betalningsdatum) -- Kolumnnamn för entiteter
+VALUES
+    ('B000001', 'Kort', 500.00, 'SEK', '2026-10-08 15:13:00'),
+    ('B000002', 'Swish', 2400.00, 'SEK', '2026-10-09 15:00:00'),
+    ('B000003', 'Kontant', 1800.00, 'SEK', '2026-10-10 15:00:00');
+
+-- Fakturabetalningen har utelämnats eftersom Faktura inte är en tillåten betalningsmetod.
+
+-- Bokningsreferens, Middag_datum, Antal_vuxna, Antal_barn, Specialkost (som fritext).
+-- PK: Bokningsreferens och Middag_datum (sammansatt primärnyckel).
+-- FK: Bokningsreferens refererar till Bokning (Bokningsreferens).
+INSERT INTO Middag
+    (Bokningsreferens, Middag_datum, Antal_vuxna, -- Kolumnnamn för entiteter
+     Antal_barn, Specialkost)
+VALUES
+    ('B000001', '2026-10-09', 4, 0, 'Inga allergier'),
+    ('B000002', '2026-10-10', 2, 2, 'Glutenfri'),
+    ('B000003', '2026-10-11', 1, 0, 'Laktosfri'),
+    ('B000004', '2026-10-12', 3, 1, 'Inga allergier');
+    
+-- Rumsnummer, Städat_datum, Personal_ID
+-- PK: Rumsnummer och Städat_datum (sammansatt primärnyckel).
+-- FK: Rumsnummer refererar till Rum (Rumsnummer).
+-- FK: Personal_ID refererar till Personal (Personal_ID).
+INSERT INTO Städning
+    (Rumsnummer, Städat_datum, Personal_ID) -- Kolumnnamn för entiteter
+VALUES
+    (1, '2026-10-10 09:00', 'ANNSV01'),
+    (2, '2026-10-11 10:30', 'SEBAN01'),
+    (3, '2026-10-12 10:30', 'ANNSV01'),
+    (4, '2026-10-13 10:30', 'SEBAN01');
+    
+-- Transaktion 1. INSERT. Funktion för att registrera ny kund.
+-- PK: Kundnummer (högsta befintliga kundnummer + 1).
+-- FK: Inga främmande nycklar.
+-- PassPnr måste vara unikt.
+DROP PROCEDURE IF EXISTS RegistreraKund; -- Drop procedure som if för att det inte ska krascha om det körs igen.
+-- Delimiter för funktionens början.
+DELIMITER //
+CREATE PROCEDURE RegistreraKund(
+    IN p_PassPnr VARCHAR(30),
+    IN p_Förnamn VARCHAR(50),
+    IN p_Efternamn VARCHAR(50),
+    IN p_Email VARCHAR(100),
+    IN p_Telefonnummer VARCHAR(20)
+)
+BEGIN
+    INSERT IGNORE INTO Kund
+        (Kundnummer, PassPnr, Kund_förnamn, Kund_efternamn, Email, Telefonnummer)
+    SELECT
+        COALESCE(MAX(Kundnummer), 0) + 1, -- Skapar ett nytt kundnummer genom att addera det högsta existerande med 1.
+        p_PassPnr,
+        p_Förnamn,
+        p_Efternamn,
+        p_Email,
+        p_Telefonnummer
+    FROM Kund;
+    -- Visar kunderna efter registreringen.
+    SELECT * FROM Kund;
+END //
+ -- Delimiter för funktionens slut .
+DELIMITER ;
+
+-- Registrerar ny kund med funktionen Registrerakund.
+CALL RegistreraKund('891231-1234','Karl','Johansson','karl.johansson@hotmail.com','+46701234567');
+
+-- Transaktion 2. INSERT. Skapa bokning.
+--
+
+-- INSERT en till rad.
+-- PK: Kundnummer (beräknas som högsta befintliga kundnummer + 1).
+-- FK: Inga främmande nycklar.
+-- PassPnr måste vara unikt som definieras i create table för kund.
+INSERT IGNORE INTO Bokning -- Including IGNORE so it skips if bokningsnummer already exists.
+    (Bokningsreferens, Kundnummer, Kund_incheckning_datum, Kund_utcheckning_datum, Personal_ID, Pris)
+SELECT
+	-- Dynamiskt skapande av bokningsreferens där en siffra läggs till inom en string, 
+    -- B000001 blir B000002 och B000999 blir B001000, etc.
+    (SELECT CONCAT('B', LPAD(COALESCE(MAX(CAST(SUBSTRING(Bokningsreferens, 2) 
+    AS UNSIGNED)), 0) + 1, 6, '0')) FROM Bokning), 
+	Kund.Kundnummer, -- Hämtar kundnummer från registrerad kund med följande personnummer efter WHERE nedan.
+    '2026-10-16 12:00', -- Incheckning.
+    '2026-10-18 12:00', -- Utcheckning.
+    'ERIJO01', -- PersonalID, receptionisten som utförde bokningen.
+    1200 -- Pris i SEK.
+FROM Kund
+WHERE Kund.PassPnr = '000101-4321';
+
+SELECT * FROM Rum;
+
+--
+-- Transaktion 3. SELECT med Nested där Join används. 
+-- Visa lediga enkelrum mellan 2026-10-09 och 2026-10-12.
+--
+
+SELECT * FROM Rum
+WHERE Rumstyp = 'Enkelrum'
+  AND Rumsnummer NOT IN (
+    SELECT Bokat_rum.Rumsnummer
+    FROM Bokat_rum
+    JOIN Bokning
+        ON Bokat_rum.Bokningsreferens = Bokning.Bokningsreferens
+    WHERE Bokning.Kund_incheckning_datum < '2026-10-12 12:00'
+      AND Bokning.Kund_utcheckning_datum > '2026-10-09 12:00'
+);
+
+SELECT * FROM Bokat_rum;
+
+-- Transaktion 4. INSERT. Koppla ett slumpmässigt ledigt rum till en bokning.
+-- PK: Bokningsreferens och Rumsnummer (sammansatt primärnyckel).
+-- FK: Bokningsreferens refererar till Bokning(Bokningsreferens).
+-- FK: Rumsnummer refererar till Rum(Rumsnummer).
+
+USE HotellHedvig;
+-- Raderar funktionen med DROP PROCEDURE om den redan existerar för att det 
+-- inte ska krascha vid flera körningar.
+DROP PROCEDURE IF EXISTS TilldelaRum;
+-- En avgränsare för att sedan köras hela vägen tills nästa delimiter, 
+-  för att kunna tolka in en hel funktion.
+DELIMITER //
+-- Skapar en funktion för att tilldela rum.
+CREATE PROCEDURE TilldelaRum(
+    IN p_Bokningsreferens VARCHAR(20), -- Arbiträr bokningsreferens.
+    IN p_Antal_Enkelrum INT, -- Antal enkelrum som ska bokas.
+    IN p_Antal_Familjerum INT -- Antal familjerum som ska bokas.
+)
+BEGIN
+	DECLARE v_Last_bokning VARCHAR(20); -- Lagrar bokningsreferensen vid låsning.
+    DECLARE v_Antal INT DEFAULT 0; -- Räknar antalet tilldelade rum.
+    DECLARE v_Rumsnummer INT; -- Lagrar ett slumpmässigt valt rum.
+    DECLARE v_Rumstyp VARCHAR(20); -- Rumstyp som behandlas.
+    DECLARE v_Önskat_antal INT; -- Antal rum som efterfrågas.
+    DECLARE v_Typ INT DEFAULT 1; -- Växlar mellan enkelrum och familjerum.
+    DECLARE v_Lediga INT; -- Antal tillgängliga rum.
+    -- Kontrollerar att bokningsreferensen existerar.
+    IF NOT EXISTS (
+        SELECT 1 FROM Bokning -- Söker efter en befintlig bokning.
+        WHERE Bokningsreferens = p_Bokningsreferens -- Matchar angiven referens.
+    ) THEN
+        SIGNAL SQLSTATE '45000' -- Avbryter om bokningen saknas.
+        SET MESSAGE_TEXT = 'Bokningsreferensen finns inte';
+    END IF;
+    -- NULL behandlas som 0, så att en rumstyp kan utelämnas.
+    SET p_Antal_Enkelrum = COALESCE(p_Antal_Enkelrum, 0);
+    SET p_Antal_Familjerum = COALESCE(p_Antal_Familjerum, 0);
+    -- Förhindrar negativa antal och bokningar utan rum.
+    IF p_Antal_Enkelrum < 0 OR p_Antal_Familjerum < 0
+       OR p_Antal_Enkelrum + p_Antal_Familjerum = 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Ogiltigt antal rum';Z
+    END IF;
+    -- Låser bokningen under tilldelningen.
+    START TRANSACTION;
+	SELECT Bokningsreferens INTO v_Last_bokning
+	FROM Bokning
+	WHERE Bokningsreferens = p_Bokningsreferens
+	FOR UPDATE;
+    -- Behandlar först enkelrum och sedan familjerum.
+    WHILE v_Typ <= 2 DO
+        IF v_Typ = 1 THEN
+            SET v_Rumstyp = 'Enkelrum';
+            SET v_Önskat_antal = p_Antal_Enkelrum;
+        ELSE
+            SET v_Rumstyp = 'Familjerum';
+            SET v_Önskat_antal = p_Antal_Familjerum;
+        END IF;
+        -- Om antal är 0 hoppas denna rumstyp över.
+        IF v_Önskat_antal > 0 THEN
+            -- Räknar hur många rum av vald typ som är lediga.
+            SELECT COUNT(*) INTO v_Lediga
+            FROM Rum
+            JOIN Bokning ON Bokning.Bokningsreferens = p_Bokningsreferens
+            WHERE Rum.Rumstyp = v_Rumstyp
+              AND NOT EXISTS ( -- Kontrollerar överlappande bokningsperioder.
+                  SELECT 1 FROM Bokat_rum
+                  JOIN Bokning AS Befintlig_bokning -- Hämtar bokningens datum.
+                      ON Bokat_rum.Bokningsreferens = Befintlig_bokning.Bokningsreferens
+                  WHERE Bokat_rum.Rumsnummer = Rum.Rumsnummer -- Samma rum.
+                    -- Kontrollerar om ett rum redan är bokat vid specifika datum.
+                    AND Befintlig_bokning.Kund_incheckning_datum
+                        < Bokning.Kund_utcheckning_datum -- Överlappningens början.
+                    AND Befintlig_bokning.Kund_utcheckning_datum
+                        > Bokning.Kund_incheckning_datum -- Överlappningens slut.
+              );
+            -- Avbryter om det inte finns tillräckligt många rum.
+            IF v_Lediga < v_Önskat_antal THEN
+                ROLLBACK; -- Ångrar samtliga rumstilldelningar i anropet.
+                SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Fullbokat';
+            END IF;
+            SET v_Antal = 0; -- Nollställer räknaren för rumstypen.
+            WHILE v_Antal < v_Önskat_antal DO -- Loopar och bokar ett rum i taget.
+                -- Registrerar ett slumpmässigt ledigt rum för en mer tidseffektiv bokning.
+                INSERT INTO Bokat_rum (Bokningsreferens, Rumsnummer)
+                SELECT Bokning.Bokningsreferens, Rum.Rumsnummer -- Hämtar två nycklar.
+                FROM Bokning -- Extraheras från alla befintliga bokningar.
+                JOIN Rum ON Rum.Rumstyp = v_Rumstyp -- Väljer önskad rumstyp.
+                WHERE Bokning.Bokningsreferens = p_Bokningsreferens -- Väljer bokningen.
+				  -- Utesluter rum som redan tillhör samma bokning. Om ett rum redan tillhör samma bokning körs det igen.
+                  AND NOT EXISTS (
+                      SELECT 1 FROM Bokat_rum AS Redan_bokat
+                      WHERE Redan_bokat.Bokningsreferens = p_Bokningsreferens
+                        AND Redan_bokat.Rumsnummer = Rum.Rumsnummer
+                  )
+                  AND NOT EXISTS ( -- Kontrollerar överlappande bokningsperioder.
+                      SELECT 1 FROM Bokat_rum
+                      JOIN Bokning AS Befintlig_bokning -- Hämtar bokningens datum.
+                          ON Bokat_rum.Bokningsreferens = Befintlig_bokning.Bokningsreferens
+                      WHERE Bokat_rum.Rumsnummer = Rum.Rumsnummer -- Samma rum.
+                        AND Befintlig_bokning.Kund_incheckning_datum
+                            < Bokning.Kund_utcheckning_datum -- Överlappningens början.
+                        AND Befintlig_bokning.Kund_utcheckning_datum
+                            > Bokning.Kund_incheckning_datum -- Överlappningens slut.
+                  )
+                ORDER BY RAND() -- Slumpmässigt ledigt rum.
+                LIMIT 1; -- Tilldelar högst ett rum per iteration.
+                SET v_Antal = v_Antal + 1; -- Ökar räknaren med ett.
+            END WHILE;
+        END IF;
+        SET v_Typ = v_Typ + 1; -- Fortsätter till nästa rumstyp.
+    END WHILE;
+
+    COMMIT; -- Sparar samtliga rumstilldelningar.
+    SELECT 'Bokning genomförd' AS Status; -- Ett eller flera rum tilldelades.
+    SELECT * FROM Bokat_rum
+    WHERE Bokningsreferens = p_Bokningsreferens; -- Visar bokade rum.
+END //
+-- Återställer den vanliga avgränsaren.
+DELIMITER ;
+
+-- Bokningsreferens, antalet enkelrum, antal familerum.
+CALL TilldelaRum('B000002', 2, 1);
+CALL TilldelaRum('B000003', 1, 1);
+CALL TilldelaRum('B000003', 1, 0);
+CALL TilldelaRum('B000005', 1, 0);
+
+SELECT * FROM Bokat_rum;
+
+
+-- Transaktion 5. INSERT. Checka in kund.
+-- PK: Bokningsreferens och Rumsnummer (sammansatt primärnyckel).
+-- FK: Bokningsreferens refererar till Bokning(Bokningsreferens).
+-- FK: Rumsnummer refererar till Rum(Rumsnummer).
+
+UPDATE Bokning
+SET Faktisk_incheckning = NOW() - INTERVAL 2 DAY -- Registrerar incheckning två dagar tidigare.
+WHERE Bokningsreferens = 'B000005'
+  AND Faktisk_incheckning IS NULL;
+
+-- Kontrollerar att kunden har checkat in.
+SELECT Bokningsreferens, Kundnummer,
+       Kund_incheckning_datum, Faktisk_incheckning
+FROM Bokning
+WHERE Bokningsreferens = 'B000005';
+
+-- Transaktion 6. UPDATE. Checka ut kund.
+-- PK: Bokningsreferens.
+-- FK: Inga nya främmande nycklar.
+
+UPDATE Bokning
+SET Faktisk_utcheckning = NOW() -- Registrerar aktuellt datum och tid.
+WHERE Bokningsreferens = 'B000005' -- Identifierar bokningen.
+  AND Faktisk_incheckning IS NOT NULL -- Kontrollerar att kunden har checkat in.
+  AND Faktisk_utcheckning IS NULL; -- Förhindrar att utcheckningen skrivs över.
+
+-- Kontrollerar att kunden har checkat ut.
+SELECT Bokningsreferens, Kundnummer,
+       Kund_utcheckning_datum, Faktisk_utcheckning
+FROM Bokning
+WHERE Bokningsreferens = 'B000005';
+SELECT * FROM Bokning;
+
+-- Transaktion 7. UPDATE. Uppdatera en befintlig bokning.
+-- PK: Bokningsreferens.
+-- FK: Kundnummer refererar till Kund(Kundnummer).
+-- FK: Personal_ID refererar till Personal(Personal_ID).
+
+DROP PROCEDURE IF EXISTS UppdateraBokning;
+
+DELIMITER //
+
+CREATE PROCEDURE UppdateraBokning(
+    IN p_Bokningsreferens VARCHAR(20), -- Identifierar bokningen.
+    IN p_Kundnummer INT, -- Nytt kundnummer.
+    IN p_Pris DECIMAL(12,2), -- Nytt pris.
+    IN p_Incheckning DATETIME, -- Nytt planerat incheckningsdatum.
+    IN p_Utcheckning DATETIME, -- Nytt planerat utcheckningsdatum.
+    IN p_Personal_ID VARCHAR(20) -- Ny ansvarig personal.
+)
+BEGIN
+    -- Kontrollerar att bokningen existerar.
+    IF NOT EXISTS (
+        SELECT 1 FROM Bokning
+        WHERE Bokningsreferens = p_Bokningsreferens
+    ) THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Bokningsreferensen finns inte';
+    END IF;
+
+    -- Uppdaterar endast de värden som anges.
+    UPDATE Bokning
+    SET Kundnummer = COALESCE(p_Kundnummer, Kundnummer),
+        Pris = COALESCE(p_Pris, Pris),
+        Kund_incheckning_datum = COALESCE(p_Incheckning, Kund_incheckning_datum),
+        Kund_utcheckning_datum = COALESCE(p_Utcheckning, Kund_utcheckning_datum),
+        Personal_ID = COALESCE(p_Personal_ID, Personal_ID)
+    WHERE Bokningsreferens = p_Bokningsreferens;
+
+    -- Visar den uppdaterade bokningen.
+    SELECT * FROM Bokning
+    WHERE Bokningsreferens = p_Bokningsreferens;
+END //
+
+DELIMITER ;
+
+-- Ändra utchecknignsdatum
+CALL UppdateraBokning('B000005', NULL, NULL, NULL, '2026-10-17 13:00:00', NULL);
+
+-- Ändra priset till 4000 SEK.
+CALL UppdateraBokning('B000005', NULL, 4000.00, NULL, NULL, NULL);
+
+SELECT * FROM Bokning;
+
+-- Kontrollerar dubbelbokningar
+SELECT
+    A.Rumsnummer,
+    A.Bokningsreferens AS Bokning_1,
+    B.Bokningsreferens AS Bokning_2
+FROM Bokat_rum AS A
+JOIN Bokat_rum AS B
+    ON A.Rumsnummer = B.Rumsnummer
+    AND A.Bokningsreferens < B.Bokningsreferens
+JOIN Bokning AS BA
+    ON A.Bokningsreferens = BA.Bokningsreferens
+JOIN Bokning AS BB
+    ON B.Bokningsreferens = BB.Bokningsreferens
+WHERE BA.Kund_incheckning_datum < BB.Kund_utcheckning_datum
+  AND BA.Kund_utcheckning_datum > BB.Kund_incheckning_datum;
+
+-- Transaktion 8. SELECT. Visa vilka rum som behöver städas.
+-- Visar rum där gästen har checkat ut och ingen städning har registrerats efter utcheckningen.
+-- Denna transaktion visar alltså inte bara ostädade rum, utan ostädade utcheckade rum.
+
+-- Kontrollerar vilka rum som tillhör bokning B000005,
+-- när kunden checkade in och ut samt när rummen senast städades.
+
+SELECT
+    Bokning.Bokningsreferens, -- Identifierar bokningen.
+    Bokat_rum.Rumsnummer, -- Hämtar rumsnumret som tillhör bokningen.
+    Bokning.Faktisk_incheckning, -- Visar faktisk tidpunkt för incheckning.
+    Bokning.Faktisk_utcheckning, -- Visar faktisk tidpunkt för utcheckning.
+    MAX(Städning.Städat_datum) AS Senaste_städning -- Hämtar senaste registrerade städning för rummet.
+FROM Bokning
+LEFT JOIN Bokat_rum
+    ON Bokning.Bokningsreferens = Bokat_rum.Bokningsreferens -- Kopplar bokningen till dess rum.
+LEFT JOIN Städning
+    ON Bokat_rum.Rumsnummer = Städning.Rumsnummer -- Kopplar rummet till registrerade städningar.
+WHERE Bokning.Bokningsreferens = 'B000005' -- Begränsar resultatet till den valda bokningen.
+GROUP BY
+    Bokning.Bokningsreferens,
+    Bokat_rum.Rumsnummer,
+    Bokning.Faktisk_incheckning,Z
+    Bokning.Faktisk_utcheckning; -- Grupperar per bokning och rum för att kunna använda MAX().
+
+-- Transaktion 9. SELECT. Visa alla middagsbeställningar.
+-- Hämtar middagsbeställningar med information om bokning, 
+-- ansvarig kund, antal gäster och eventuell specialkost.
+
+SELECT
+	-- Specificerar alla entiteter från middag och kund.
+    Middag.Bokningsreferens,
+    Kund.Kund_förnamn,
+    Kund.Kund_efternamn,
+    Middag.Middag_datum,
+    Middag.Antal_vuxna,
+    Middag.Antal_barn,
+    Middag.Specialkost
+FROM Middag
+-- Mergear via följande nycklar.
+-- Bokning är nödvändig för att koppla kund till middag.
+JOIN Bokning
+    ON Middag.Bokningsreferens = Bokning.Bokningsreferens
+JOIN Kund
+    ON Bokning.Kundnummer = Kund.Kundnummer
+ORDER BY Middag.Middag_datum ASC; -- Sorterar stigande efter middagens datum.
+
+-- Transaktion 10. SELECT. Hämta tidigare kunders mejladresser.
+-- Hämtar kunder som har haft minst en bokning med ett passerat utcheckningsdatum.
+
+SELECT DISTINCT
+    Kund.Kundnummer,
+    Kund.Kund_förnamn,
+    Kund.Kund_efternamn,
+    Kund.Email
+FROM Kund
+JOIN Bokning
+    ON Kund.Kundnummer = Bokning.Kundnummer
+WHERE Bokning.Kund_utcheckning_datum < NOW() -- Undviker att inkludera incheckade kunder.
+    AND Kund.Email IS NOT NULL; -- För att undvika krasch måste mail existera.
+
+-- Transaktion 11. SELECT. Visa vilken receptionist som registrerade en specifik bokning.
+-- Kopplar bokningen till personalen via Personal_ID. I detta fall bokningen B000005.
+
+SELECT
+    Bokning.Bokningsreferens,
+    Personal.Personal_ID,Z
+    PersZonal.Personal_förnamn,
+    Personal.Personal_efternamn,
+    Personal.Roll
+FROM Bokning
+JOIN Personal
+    ON Bokning.Personal_ID = Personal.Personal_ID
+WHERE Bokning.Bokningsreferens = 'B000005';
+
+-- Transaktion 12. SELECT. Visa vilka rumstyper som bokas mest.
+-- Räknar antalet bokningar per rumstyp och sorterar efter popularitet.
+
+SELECT
+    Rum.Rumstyp,
+    COUNT(Bokat_rum.Rumsnummer) AS Antal_bokningar -- Skapar en temporär variabel som antal bokade rumsnummer.
+FROM Rum
+JOIN Bokat_rum
+    ON Rum.Rumsnummer = Bokat_rum.Rumsnummer
+GROUP BY Rum.Rumstyp -- Sorterar dessa efter rumstyp.
+ORDER BY Antal_bokningar DESC;
